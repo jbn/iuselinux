@@ -1,6 +1,10 @@
 """FastAPI server for iMessage Gateway."""
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .messages import get_chats, get_messages, Chat, Message
@@ -11,6 +15,16 @@ app = FastAPI(
     description="Read and send iMessages via local API",
     version="0.1.0",
 )
+
+# Serve static files
+static_dir = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+@app.get("/")
+def index():
+    """Serve the main UI."""
+    return FileResponse(static_dir / "index.html")
 
 
 # Response models
