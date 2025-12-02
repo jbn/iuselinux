@@ -57,6 +57,7 @@ class ChatResponse(BaseModel):
     guid: str
     display_name: str | None
     identifier: str | None
+    last_message_time: str | None  # ISO format
 
 
 class MessageResponse(BaseModel):
@@ -116,6 +117,7 @@ def _chat_to_response(chat: Chat) -> ChatResponse:
         guid=chat.guid,
         display_name=chat.display_name,
         identifier=chat.identifier,
+        last_message_time=chat.last_message_time.isoformat() if chat.last_message_time else None,
     )
 
 

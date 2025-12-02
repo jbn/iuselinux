@@ -21,6 +21,14 @@ async function loadChats() {
     }
 }
 
+function getChatDisplayName(chat) {
+    // Prefer identifier (phone/email) for 1:1 chats, or display_name for group chats
+    // Skip display_name if it looks like a guid (starts with "chat" followed by digits)
+    const guidPattern = /^chat\d+$/;
+    const hasValidDisplayName = chat.display_name && !guidPattern.test(chat.display_name);
+    return chat.identifier || (hasValidDisplayName ? chat.display_name : null) || 'Unknown';
+}
+
 function renderChats(chats) {
     if (chats.length === 0) {
         chatList.innerHTML = '<div class="empty-state">No chats found</div>';
@@ -28,7 +36,7 @@ function renderChats(chats) {
     }
     chatList.innerHTML = chats.map(chat => `
         <div class="chat-item" data-id="${chat.rowid}" data-identifier="${chat.identifier || ''}">
-            <div class="chat-name">${chat.display_name || chat.identifier || 'Unknown'}</div>
+            <div class="chat-name">${getChatDisplayName(chat)}</div>
             <div class="chat-identifier">${chat.identifier || ''}</div>
         </div>
     `).join('');

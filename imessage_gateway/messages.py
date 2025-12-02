@@ -27,6 +27,7 @@ class Chat:
     guid: str
     display_name: str | None
     identifier: str | None  # For 1:1 chats, the phone/email
+    last_message_time: datetime | None = None
 
 
 def get_messages(
@@ -101,27 +102,31 @@ def get_messages(
 
 def get_chats(limit: int = 100, db_path: Path | None = None) -> list[Chat]:
     """
-    List all chats/conversations.
+    List all chats/conversations, ordered by most recent message.
 
     Args:
         limit: Max chats to return
         db_path: Override default db path
 
     Returns:
-        List of Chat objects
+        List of Chat objects, most recently active first
     """
     with get_connection(db_path) as conn:
         cur = conn.cursor()
 
-        # Get chats with their primary identifier (for 1:1 chats)
+        # Get chats with their primary identifier and last message time
         query = """
         SELECT
             chat.ROWID as rowid,
             chat.guid,
             chat.display_name,
-            chat.chat_identifier as identifier
+            chat.chat_identifier as identifier,
+            MAX(message.date) as last_message_time
         FROM chat
-        ORDER BY chat.ROWID DESC
+        LEFT JOIN chat_message_join ON chat.ROWID = chat_message_join.chat_id
+        LEFT JOIN message ON chat_message_join.message_id = message.ROWID
+        GROUP BY chat.ROWID
+        ORDER BY last_message_time DESC NULLS LAST
         LIMIT ?
         """
 
@@ -135,6 +140,7 @@ def get_chats(limit: int = 100, db_path: Path | None = None) -> list[Chat]:
                     guid=row["guid"],
                     display_name=row["display_name"],
                     identifier=row["identifier"],
+                    last_message_time=mac_absolute_to_datetime(row["last_message_time"]),
                 )
             )
 
