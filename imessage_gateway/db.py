@@ -19,16 +19,56 @@ def get_db_path() -> Path:
     return DEFAULT_DB_PATH
 
 
+class FullDiskAccessError(PermissionError):
+    """Raised when Full Disk Access permission is missing."""
+
+    def __init__(self, path: Path):
+        super().__init__(
+            f"Cannot access {path}. "
+            "Grant Full Disk Access to Terminal (or your IDE) in "
+            "System Settings > Privacy & Security > Full Disk Access"
+        )
+
+
+def check_db_access(db_path: Path | None = None) -> bool:
+    """
+    Check if we can access the iMessage database.
+
+    Returns:
+        True if accessible, False otherwise
+    """
+    path = db_path or get_db_path()
+    if not path.exists():
+        return False
+    try:
+        with open(path, "rb") as f:
+            f.read(1)
+        return True
+    except PermissionError:
+        return False
+
+
 @contextmanager
 def get_connection(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     """
     Get a read-only connection to chat.db.
 
     Uses URI mode with ?mode=ro to ensure read-only access.
+
+    Raises:
+        FileNotFoundError: If chat.db doesn't exist
+        FullDiskAccessError: If permission is denied (need Full Disk Access)
     """
     path = db_path or get_db_path()
     if not path.exists():
         raise FileNotFoundError(f"chat.db not found at {path}")
+
+    # Check for Full Disk Access permission
+    try:
+        with open(path, "rb") as f:
+            f.read(1)
+    except PermissionError:
+        raise FullDiskAccessError(path)
 
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row

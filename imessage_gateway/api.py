@@ -1,12 +1,22 @@
 """FastAPI server for iMessage Gateway."""
 
+import re
+import time
+from collections import deque
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field, field_validator
 
+
+# Rate limiting for send endpoint
+RATE_LIMIT_MESSAGES = 10  # Max messages per window
+RATE_LIMIT_WINDOW = 60  # Window in seconds
+_send_timestamps: deque[float] = deque()
+
+from .db import FullDiskAccessError, check_db_access
 from .messages import get_chats, get_messages, Chat, Message
 from .sender import send_imessage, SendResult
 
@@ -19,6 +29,18 @@ app = FastAPI(
 # Serve static files
 static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+@app.exception_handler(FullDiskAccessError)
+async def full_disk_access_handler(request: Request, exc: FullDiskAccessError):
+    """Handle missing Full Disk Access permission."""
+    return JSONResponse(
+        status_code=403,
+        content={
+            "detail": str(exc),
+            "error_type": "full_disk_access_required",
+        },
+    )
 
 
 @app.get("/")
@@ -48,11 +70,36 @@ class MessageResponse(BaseModel):
     chat_id: int | None
 
 
+# Validation patterns
+PHONE_PATTERN = re.compile(r"^\+?[1-9]\d{6,14}$")
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+MAX_MESSAGE_LENGTH = 10000
+
+
 class SendRequest(BaseModel):
     """Request to send a message."""
 
-    recipient: str
-    message: str
+    recipient: str = Field(..., min_length=1, max_length=320)
+    message: str = Field(..., min_length=1, max_length=MAX_MESSAGE_LENGTH)
+
+    @field_validator("recipient")
+    @classmethod
+    def validate_recipient(cls, v: str) -> str:
+        v = v.strip()
+        # Remove common phone formatting
+        normalized = re.sub(r"[\s\-\(\)]", "", v)
+        if PHONE_PATTERN.match(normalized):
+            return normalized
+        if EMAIL_PATTERN.match(v):
+            return v
+        raise ValueError("recipient must be a valid phone number or email")
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("message cannot be empty or whitespace only")
+        return v
 
 
 class SendResponse(BaseModel):
@@ -102,16 +149,42 @@ def list_messages(
     return [_message_to_response(m) for m in messages]
 
 
+def _check_rate_limit() -> None:
+    """Check and enforce rate limit, raises HTTPException if exceeded."""
+    now = time.time()
+    cutoff = now - RATE_LIMIT_WINDOW
+
+    # Remove old timestamps
+    while _send_timestamps and _send_timestamps[0] < cutoff:
+        _send_timestamps.popleft()
+
+    if len(_send_timestamps) >= RATE_LIMIT_MESSAGES:
+        retry_after = int(_send_timestamps[0] - cutoff) + 1
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Max {RATE_LIMIT_MESSAGES} messages per {RATE_LIMIT_WINDOW}s",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
 @app.post("/send", response_model=SendResponse)
 def send_message(request: SendRequest) -> SendResponse:
     """Send an iMessage."""
+    _check_rate_limit()
+
     result = send_imessage(request.recipient, request.message)
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
+
+    _send_timestamps.append(time.time())
     return SendResponse(success=True)
 
 
 @app.get("/health")
 def health_check() -> dict:
-    """Health check endpoint."""
-    return {"status": "ok"}
+    """Health check endpoint with database access status."""
+    db_ok = check_db_access()
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "database_accessible": db_ok,
+    }
