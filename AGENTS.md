@@ -1,6 +1,6 @@
 ## General workflow
 
-- Use TDD
+- Use TDD with `pytest`
 - Use `uv`
 
 ## Issue Tracking with bd (beads)
