@@ -58,6 +58,7 @@ class ChatResponse(BaseModel):
     display_name: str | None
     identifier: str | None
     last_message_time: str | None  # ISO format
+    participants: list[str] | None = None  # For group chats
 
 
 class MessageResponse(BaseModel):
@@ -69,6 +70,8 @@ class MessageResponse(BaseModel):
     is_from_me: bool
     handle_id: str | None
     chat_id: int | None
+    tapback_type: str | None = None  # Reaction type: love, like, dislike, laugh, emphasize, question
+    associated_guid: str | None = None  # GUID of message this reacts to
 
 
 # Validation patterns
@@ -118,6 +121,7 @@ def _chat_to_response(chat: Chat) -> ChatResponse:
         display_name=chat.display_name,
         identifier=chat.identifier,
         last_message_time=chat.last_message_time.isoformat() if chat.last_message_time else None,
+        participants=chat.participants,
     )
 
 
@@ -130,6 +134,8 @@ def _message_to_response(msg: Message) -> MessageResponse:
         is_from_me=msg.is_from_me,
         handle_id=msg.handle_id,
         chat_id=msg.chat_id,
+        tapback_type=msg.tapback_type,
+        associated_guid=msg.associated_guid,
     )
 
 

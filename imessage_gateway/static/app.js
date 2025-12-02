@@ -22,11 +22,31 @@ async function loadChats() {
 }
 
 function getChatDisplayName(chat) {
-    // Prefer identifier (phone/email) for 1:1 chats, or display_name for group chats
-    // Skip display_name if it looks like a guid (starts with "chat" followed by digits)
+    // For 1:1 chats, prefer identifier (phone/email)
+    if (chat.identifier && !chat.identifier.startsWith('chat')) {
+        return chat.identifier;
+    }
+
+    // For group chats, use display_name if valid, otherwise show participants
     const guidPattern = /^chat\d+$/;
     const hasValidDisplayName = chat.display_name && !guidPattern.test(chat.display_name);
-    return chat.identifier || (hasValidDisplayName ? chat.display_name : null) || 'Unknown';
+    if (hasValidDisplayName) {
+        return chat.display_name;
+    }
+
+    // Show participants for group chats
+    if (chat.participants && chat.participants.length > 0) {
+        // Format as "person1, person2, ..." (truncate last 4 digits of phone for privacy)
+        const formatted = chat.participants.map(p => {
+            if (p.startsWith('+') && p.length > 4) {
+                return '...' + p.slice(-4);
+            }
+            return p;
+        });
+        return formatted.join(', ');
+    }
+
+    return 'Unknown';
 }
 
 function renderChats(chats) {
@@ -99,6 +119,9 @@ async function pollNewMessages() {
     }
 }
 
+// Time gap threshold for showing timestamp separator (in minutes)
+const TIMESTAMP_GAP_MINUTES = 60;
+
 function renderMessages(messages) {
     if (messages.length === 0) {
         messagesDiv.innerHTML = '<div class="empty-state">No messages</div>';
@@ -106,7 +129,23 @@ function renderMessages(messages) {
     }
     // Messages come newest first, reverse for display
     const sorted = [...messages].sort((a, b) => a.rowid - b.rowid);
-    messagesDiv.innerHTML = sorted.map(messageHtml).join('');
+
+    let html = '';
+    let lastTimestamp = null;
+
+    for (const msg of sorted) {
+        // Check if we need a timestamp separator
+        if (msg.timestamp) {
+            const msgTime = new Date(msg.timestamp);
+            if (!lastTimestamp || (msgTime - lastTimestamp) > TIMESTAMP_GAP_MINUTES * 60 * 1000) {
+                html += `<div class="timestamp-separator">${formatTimeSeparator(msgTime)}</div>`;
+            }
+            lastTimestamp = msgTime;
+        }
+        html += messageHtml(msg);
+    }
+
+    messagesDiv.innerHTML = html;
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
 
@@ -120,21 +159,52 @@ function appendMessages(messages) {
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
 
+// Tapback emoji mapping
+const TAPBACK_EMOJI = {
+    love: '❤️',
+    like: '👍',
+    dislike: '👎',
+    laugh: '😂',
+    emphasize: '‼️',
+    question: '❓'
+};
+
 function messageHtml(msg) {
     const cls = msg.is_from_me ? 'from-me' : 'from-them';
+
+    // Handle tapback reactions - render as small inline reaction
+    if (msg.tapback_type) {
+        const emoji = TAPBACK_EMOJI[msg.tapback_type] || msg.tapback_type;
+        return `
+            <div class="message tapback ${cls}">
+                <span class="tapback-emoji">${emoji}</span>
+            </div>
+        `;
+    }
+
     const text = msg.text || '';
-    const time = msg.timestamp ? formatTime(msg.timestamp) : '';
     return `
         <div class="message ${cls}">
             <div class="text">${escapeHtml(text)}</div>
-            <div class="timestamp">${time}</div>
         </div>
     `;
 }
 
-function formatTime(isoString) {
-    const d = new Date(isoString);
-    return d.toLocaleString();
+function formatTimeSeparator(date) {
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = date.toDateString() === yesterday.toDateString();
+
+    if (isToday) {
+        return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    } else if (isYesterday) {
+        return 'Yesterday ' + date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    } else {
+        return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' +
+               date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
 }
 
 function escapeHtml(text) {

@@ -110,3 +110,46 @@ def datetime_to_mac_absolute(dt: datetime) -> int:
     unix_timestamp = dt.timestamp()
     seconds_since_mac_epoch = unix_timestamp - MAC_EPOCH_UNIX
     return int(seconds_since_mac_epoch * 1_000_000_000)
+
+
+def extract_text_from_attributed_body(data: bytes) -> str | None:
+    """
+    Extract text from NSAttributedString typedstream blob.
+
+    iMessage stores rich text in attributedBody as a typedstream-encoded
+    NSAttributedString. The text field may be NULL when the message contains
+    special formatting, mentions, or was edited.
+
+    Args:
+        data: Raw attributedBody blob from message table
+
+    Returns:
+        Extracted text string, or None if extraction fails
+    """
+    if not data:
+        return None
+
+    # Look for NSString marker
+    marker = b"NSString"
+    idx = data.find(marker)
+    if idx == -1:
+        return None
+
+    # After NSString there's metadata then: +<length><text> or *<length><text>
+    pos = idx + len(marker)
+
+    while pos < len(data) - 2:
+        b = data[pos]
+        # + (0x2B) or * (0x2A) markers precede the length byte
+        if b in (0x2B, 0x2A) and pos + 2 < len(data):
+            length = data[pos + 1]
+            if 0 < length < 250 and pos + 2 + length <= len(data):
+                try:
+                    text = data[pos + 2 : pos + 2 + length].decode("utf-8")
+                    if text:
+                        return text
+                except UnicodeDecodeError:
+                    pass
+        pos += 1
+
+    return None
