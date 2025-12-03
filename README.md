@@ -71,6 +71,103 @@ ssh -L 9000:localhost:8000 user@your-mac-ip
 
 **Permission denied**: Check your SSH key is added or use password auth.
 
+## Remote Access via Tailscale
+
+[Tailscale](https://tailscale.com/) creates a secure mesh VPN that's easier to set up than traditional SSH tunnels.
+
+### Setup
+
+1. Install Tailscale on both machines:
+   - Mac (server): Download from [tailscale.com](https://tailscale.com/download/mac) or `brew install tailscale`
+   - Remote machine: See [download page](https://tailscale.com/download) for your OS
+
+2. Sign in on both machines:
+   ```bash
+   tailscale up
+   ```
+
+3. Find your Mac's Tailscale IP:
+   ```bash
+   tailscale ip -4
+   # Example: 100.64.0.1
+   ```
+
+4. Modify the server to listen on Tailscale interface (optional):
+
+   By default, the server binds to `127.0.0.1`. To access via Tailscale, you can either:
+
+   **Option A**: Use SSH tunnel over Tailscale (recommended - keeps localhost binding):
+   ```bash
+   ssh -L 8000:localhost:8000 user@100.64.0.1
+   ```
+
+   **Option B**: Bind to all interfaces (less secure):
+   ```bash
+   uv run uvicorn imessage_gateway.api:app --host 0.0.0.0 --port 8000
+   ```
+   Then access at `http://100.64.0.1:8000`
+
+### Security Notes
+
+- Tailscale traffic is encrypted end-to-end
+- Only devices in your Tailscale network can connect
+- Consider enabling [Tailscale ACLs](https://tailscale.com/kb/1018/acls) for fine-grained access control
+
+## Remote Access via WireGuard
+
+For self-hosted VPN, use [WireGuard](https://www.wireguard.com/).
+
+### Setup
+
+1. Install WireGuard on both machines:
+   - Mac: `brew install wireguard-tools`
+   - Linux: `sudo apt install wireguard`
+
+2. Generate keys on both machines:
+   ```bash
+   wg genkey | tee privatekey | wg pubkey > publickey
+   ```
+
+3. Create `/etc/wireguard/wg0.conf` on your Mac:
+   ```ini
+   [Interface]
+   PrivateKey = <mac-private-key>
+   Address = 10.0.0.1/24
+   ListenPort = 51820
+
+   [Peer]
+   PublicKey = <remote-public-key>
+   AllowedIPs = 10.0.0.2/32
+   ```
+
+4. Create `/etc/wireguard/wg0.conf` on remote machine:
+   ```ini
+   [Interface]
+   PrivateKey = <remote-private-key>
+   Address = 10.0.0.2/24
+
+   [Peer]
+   PublicKey = <mac-public-key>
+   Endpoint = your-mac-public-ip:51820
+   AllowedIPs = 10.0.0.1/32
+   PersistentKeepalive = 25
+   ```
+
+5. Start WireGuard:
+   ```bash
+   sudo wg-quick up wg0
+   ```
+
+6. Access the gateway via SSH tunnel over WireGuard:
+   ```bash
+   ssh -L 8000:localhost:8000 user@10.0.0.1
+   ```
+   Then open `http://localhost:8000`
+
+### Port Forwarding
+
+If your Mac is behind a router, forward UDP port 51820 to your Mac's local IP.
+
 ## API Endpoints
 
 - `GET /chats` - List conversations
