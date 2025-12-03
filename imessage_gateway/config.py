@@ -15,7 +15,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 # Default configuration values
 DEFAULTS: dict[str, Any] = {
     "custom_css": "",
-    "prevent_sleep": False,
+    "prevent_sleep": True,  # Keep Mac awake while server is running
     "vim_bindings": False,
 }
 

@@ -708,7 +708,7 @@ class ConfigResponse(BaseModel):
     """Configuration response."""
 
     custom_css: str = ""
-    prevent_sleep: bool = False
+    prevent_sleep: bool = True
     vim_bindings: bool = False
 
 
@@ -815,3 +815,54 @@ async def websocket_endpoint(
 
     except WebSocketDisconnect:
         pass
+
+
+def main():
+    """Run the iMessage Gateway server."""
+    import uvicorn
+    import signal
+    import sys
+
+    # Check if caffeinate is enabled in config
+    config = get_config()
+    caffeinate_proc = None
+
+    if config.get("prevent_sleep", False):
+        try:
+            # Start caffeinate to prevent sleep
+            # -d: prevent display sleep
+            # -i: prevent system idle sleep
+            caffeinate_proc = subprocess.Popen(
+                ["caffeinate", "-di"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            print("Caffeinate started - preventing system sleep")
+        except FileNotFoundError:
+            print("Warning: caffeinate not found (not on macOS?)")
+        except Exception as e:
+            print(f"Warning: Failed to start caffeinate: {e}")
+
+    def cleanup(signum=None, frame=None):
+        """Clean up caffeinate process on exit."""
+        if caffeinate_proc:
+            caffeinate_proc.terminate()
+            try:
+                caffeinate_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                caffeinate_proc.kill()
+        sys.exit(0)
+
+    # Register signal handlers for clean shutdown
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
+
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=8000)
+    finally:
+        if caffeinate_proc:
+            caffeinate_proc.terminate()
+
+
+if __name__ == "__main__":
+    main()
