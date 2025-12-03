@@ -679,34 +679,48 @@ def get_attachment_thumbnail(attachment_id: int):
     )
 
 
-def _transcode_to_mp4_bytes(input_path: Path) -> bytes | None:
-    """Transcode video to MP4 format in memory for streaming."""
+def _transcode_to_mp4_stream(input_path: Path):
+    """
+    Generator that yields MP4 chunks as ffmpeg produces them.
+
+    Uses fragmented MP4 (fMP4) format which allows playback to start
+    before the entire file is transcoded.
+    """
     if not FFMPEG_AVAILABLE:
-        return None
+        return
+
+    proc = subprocess.Popen(
+        [
+            "ffmpeg", "-y",
+            "-i", str(input_path),
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-movflags", "frag_keyframe+empty_moov+faststart",  # Fragmented MP4 for streaming
+            "-f", "mp4",
+            "pipe:1",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
 
     try:
-        # Transcode to stdout with fragmented MP4 for streaming
-        result = subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-i", str(input_path),
-                "-c:v", "libx264",
-                "-preset", "fast",
-                "-crf", "23",
-                "-c:a", "aac",
-                "-b:a", "128k",
-                "-movflags", "frag_keyframe+empty_moov",  # Fragmented MP4 for streaming
-                "-f", "mp4",
-                "pipe:1",
-            ],
-            capture_output=True,
-            timeout=300,  # 5 minute timeout for long videos
-        )
-        if result.returncode == 0 and result.stdout:
-            return result.stdout
-    except subprocess.TimeoutExpired:
-        pass
-    return None
+        # Read and yield chunks as they become available
+        chunk_size = 64 * 1024  # 64KB chunks
+        while True:
+            chunk = proc.stdout.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        proc.stdout.close()
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
 
 
 @app.get("/attachments/{attachment_id}/stream")
@@ -715,7 +729,8 @@ def stream_attachment(attachment_id: int):
     Stream a transcoded version of a video attachment.
 
     MOV/QuickTime videos are transcoded to MP4 for browser playback.
-    Browser should cache response for 24 hours via Cache-Control header.
+    Uses chunked transfer encoding so playback can start immediately
+    while transcoding continues in the background.
     Returns 404 if ffmpeg not available.
     """
     if not FFMPEG_AVAILABLE:
@@ -741,15 +756,11 @@ def stream_attachment(attachment_id: int):
             headers={"Cache-Control": "public, max-age=86400"},
         )
 
-    # Transcode to MP4 and stream (browser caches via Cache-Control)
-    mp4_data = _transcode_to_mp4_bytes(file_path)
-    if mp4_data is None:
-        raise HTTPException(status_code=500, detail="Failed to transcode video")
-
+    # Stream transcoded MP4 chunks as they're produced
     return StreamingResponse(
-        io.BytesIO(mp4_data),
+        _transcode_to_mp4_stream(file_path),
         media_type="video/mp4",
-        headers={"Cache-Control": "public, max-age=86400"},  # 24h browser cache
+        # Don't cache transcoded streams - they may be incomplete if interrupted
     )
 
 
