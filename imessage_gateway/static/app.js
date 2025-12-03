@@ -7,7 +7,7 @@ const sendBtn = document.getElementById('send-btn');
 
 let currentChatId = null;
 let currentRecipient = null;
-let pollInterval = null;
+let websocket = null;
 let lastMessageId = 0;
 
 async function loadChats() {
@@ -85,7 +85,7 @@ function selectChat(item) {
 
     lastMessageId = 0;
     loadMessages();
-    startPolling();
+    connectWebSocket();
 }
 
 async function loadMessages() {
@@ -101,21 +101,6 @@ async function loadMessages() {
     } catch (err) {
         console.error('Failed to load messages:', err);
         messagesDiv.innerHTML = '<div class="empty-state">Failed to load messages</div>';
-    }
-}
-
-async function pollNewMessages() {
-    if (!currentChatId) return;
-    try {
-        const url = `/messages?chat_id=${currentChatId}&limit=50&after_rowid=${lastMessageId}`;
-        const res = await fetch(url);
-        const messages = await res.json();
-        if (messages.length > 0) {
-            appendMessages(messages);
-            lastMessageId = Math.max(...messages.map(m => m.rowid));
-        }
-    } catch (err) {
-        console.error('Poll failed:', err);
     }
 }
 
@@ -297,9 +282,54 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-function startPolling() {
-    if (pollInterval) clearInterval(pollInterval);
-    pollInterval = setInterval(pollNewMessages, 3000);
+function connectWebSocket() {
+    // Close existing connection if any
+    if (websocket) {
+        websocket.close();
+        websocket = null;
+    }
+
+    if (!currentChatId) return;
+
+    // Build WebSocket URL
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws?chat_id=${currentChatId}`;
+
+    websocket = new WebSocket(wsUrl);
+
+    websocket.onopen = () => {
+        console.log('WebSocket connected');
+        // Tell server to start from our current position
+        if (lastMessageId > 0) {
+            websocket.send(JSON.stringify({
+                type: 'set_after_rowid',
+                rowid: lastMessageId
+            }));
+        }
+    };
+
+    websocket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'messages' && data.data.length > 0) {
+            appendMessages(data.data);
+            lastMessageId = data.last_rowid;
+        }
+        // Ignore ping messages
+    };
+
+    websocket.onclose = () => {
+        console.log('WebSocket closed, reconnecting in 3s...');
+        setTimeout(() => {
+            if (currentChatId) {
+                connectWebSocket();
+            }
+        }, 3000);
+    };
+
+    websocket.onerror = (err) => {
+        console.error('WebSocket error:', err);
+    };
 }
 
 sendForm.addEventListener('submit', async (e) => {
@@ -321,8 +351,7 @@ sendForm.addEventListener('submit', async (e) => {
             alert('Failed to send: ' + (err.detail || 'Unknown error'));
         } else {
             messageInput.value = '';
-            // Poll immediately to show sent message
-            setTimeout(pollNewMessages, 500);
+            // WebSocket will receive the new message automatically
         }
     } catch (err) {
         console.error('Send failed:', err);

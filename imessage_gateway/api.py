@@ -6,7 +6,9 @@ import time
 from collections import deque
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Request
+import asyncio
+
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
@@ -454,3 +456,75 @@ def health_check() -> dict:
         "status": "ok" if db_ok else "degraded",
         "database_accessible": db_ok,
     }
+
+
+# WebSocket for real-time updates
+WEBSOCKET_POLL_INTERVAL = 1.0  # seconds between polls
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(
+    websocket: WebSocket,
+    chat_id: int | None = Query(default=None, description="Filter to specific chat"),
+):
+    """
+    WebSocket endpoint for real-time message updates.
+
+    Connect to /ws or /ws?chat_id=N to receive new messages as they arrive.
+
+    Messages sent to client:
+    - {"type": "messages", "data": [...], "last_rowid": N} - new messages
+    - {"type": "ping"} - keepalive ping every 30s
+
+    Client can send:
+    - {"type": "set_after_rowid", "rowid": N} - set the starting rowid
+    """
+    await websocket.accept()
+
+    # Start with the latest rowid (don't send historical messages)
+    messages = get_messages(chat_id=chat_id, limit=1)
+    last_rowid = messages[0].rowid if messages else 0
+
+    ping_counter = 0
+
+    try:
+        while True:
+            # Check for new messages
+            new_messages = get_messages(
+                chat_id=chat_id,
+                limit=100,
+                after_rowid=last_rowid,
+            )
+
+            if new_messages:
+                # Sort oldest first for client processing
+                new_messages.sort(key=lambda m: m.rowid)
+                last_rowid = new_messages[-1].rowid
+
+                await websocket.send_json({
+                    "type": "messages",
+                    "data": [_message_to_response(m).model_dump() for m in new_messages],
+                    "last_rowid": last_rowid,
+                })
+
+            # Send ping every ~30 seconds to keep connection alive
+            ping_counter += 1
+            if ping_counter >= 30:
+                await websocket.send_json({"type": "ping"})
+                ping_counter = 0
+
+            # Check for client messages (non-blocking)
+            try:
+                data = await asyncio.wait_for(
+                    websocket.receive_json(),
+                    timeout=WEBSOCKET_POLL_INTERVAL,
+                )
+                # Handle client commands
+                if data.get("type") == "set_after_rowid":
+                    last_rowid = data.get("rowid", last_rowid)
+            except asyncio.TimeoutError:
+                # No message from client, continue polling
+                pass
+
+    except WebSocketDisconnect:
+        pass
