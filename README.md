@@ -1,10 +1,45 @@
-Start the server with:
+# iMessage Gateway
+
+A web interface for reading and sending iMessages on macOS.
+
+## Installation
+
+```bash
+uv pip install -e .
+```
+
+For development (includes pytest):
+
+```bash
+uv pip install -e ".[dev]"
+```
+
+## Usage
+
+Start the server:
+
+```bash
+imessage-gateway
+```
+
+Or run directly with uvicorn:
 
 ```bash
 uv run uvicorn imessage_gateway.api:app --host 127.0.0.1 --port 8000
 ```
 
 Then open http://127.0.0.1:8000 in your browser.
+
+## Features
+
+- View all conversations and messages
+- Send messages via the web UI
+- Real-time updates via WebSocket
+- Attachment support (images, videos with auto-conversion)
+- Vim keybindings (optional)
+- Custom CSS theming
+- API token authentication (optional)
+- Prevents Mac from sleeping while running (configurable)
 
 ## Remote Access via SSH Tunnel
 
