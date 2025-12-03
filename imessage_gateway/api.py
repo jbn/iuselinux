@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import logging
 import os
 import re
 import shutil
@@ -12,6 +13,8 @@ from collections import deque
 from pathlib import Path
 
 import asyncio
+
+logger = logging.getLogger("imessage_gateway.api")
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -99,8 +102,14 @@ def verify_token(credentials: HTTPAuthorizationCredentials | None = Depends(secu
 PUBLIC_PATHS = {"/", "/health"}
 
 
+from typing import Callable, Awaitable
+from starlette.responses import Response
+
+
 @app.middleware("http")
-async def auth_middleware(request: Request, call_next):
+async def auth_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     """Check authentication for API endpoints."""
     path = request.url.path
 
@@ -129,7 +138,9 @@ async def auth_middleware(request: Request, call_next):
 
 
 @app.exception_handler(FullDiskAccessError)
-async def full_disk_access_handler(request: Request, exc: FullDiskAccessError):
+async def full_disk_access_handler(
+    request: Request, exc: FullDiskAccessError
+) -> JSONResponse:
     """Handle missing Full Disk Access permission."""
     return JSONResponse(
         status_code=403,
@@ -141,7 +152,7 @@ async def full_disk_access_handler(request: Request, exc: FullDiskAccessError):
 
 
 @app.get("/")
-def index():
+def index() -> FileResponse:
     """Serve the main UI."""
     return FileResponse(static_dir / "index.html")
 
@@ -332,7 +343,9 @@ def _message_to_response(msg: Message) -> MessageResponse:
 @app.get("/chats", response_model=list[ChatResponse])
 def list_chats(limit: int = Query(default=100, le=500)) -> list[ChatResponse]:
     """List all chats/conversations."""
+    logger.info("Fetching chats (limit=%d)", limit)
     chats = get_chats(limit=limit)
+    logger.info("Returning %d chats", len(chats))
     return [_chat_to_response(c) for c in chats]
 
 
@@ -343,7 +356,9 @@ def list_messages(
     after_rowid: int | None = Query(default=None, description="Only messages after this rowid"),
 ) -> list[MessageResponse]:
     """Fetch messages, optionally filtered by chat."""
+    logger.info("Fetching messages (chat_id=%s, limit=%d, after_rowid=%s)", chat_id, limit, after_rowid)
     messages = get_messages(chat_id=chat_id, limit=limit, after_rowid=after_rowid)
+    logger.info("Returning %d messages", len(messages))
     return [_message_to_response(m) for m in messages]
 
 
@@ -438,11 +453,13 @@ class SendErrorResponse(BaseModel):
 })
 def send_message(request: SendRequest) -> SendResponse:
     """Send an iMessage."""
+    logger.info("Sending message to %s (length=%d)", request.recipient, len(request.message))
     _check_rate_limit()
 
     result = send_imessage(request.recipient, request.message)
     if not result.success:
         status_code, error_type, user_message = _classify_send_error(result.error)
+        logger.warning("Send failed: %s (type=%s)", user_message, error_type)
         raise HTTPException(
             status_code=status_code,
             detail={
@@ -452,6 +469,7 @@ def send_message(request: SendRequest) -> SendResponse:
             },
         )
 
+    logger.info("Message sent successfully to %s", request.recipient)
     _send_timestamps.append(time.time())
     return SendResponse(success=True)
 
@@ -556,8 +574,8 @@ def _convert_heic_to_webp(file_path: Path) -> io.BytesIO:
         return output
 
 
-@app.get("/attachments/{attachment_id}")
-def get_attachment_file(attachment_id: int):
+@app.get("/attachments/{attachment_id}", response_model=None)
+def get_attachment_file(attachment_id: int) -> FileResponse | StreamingResponse:
     """
     Serve an attachment file.
 
@@ -682,8 +700,8 @@ def _is_quicktime_video(mime_type: str | None, uti: str | None) -> bool:
     return False
 
 
-@app.get("/attachments/{attachment_id}/thumbnail")
-def get_attachment_thumbnail(attachment_id: int):
+@app.get("/attachments/{attachment_id}/thumbnail", response_model=None)
+def get_attachment_thumbnail(attachment_id: int) -> FileResponse | StreamingResponse:
     """
     Get a thumbnail image for a video attachment.
 
@@ -730,7 +748,10 @@ def get_attachment_thumbnail(attachment_id: int):
     )
 
 
-def _transcode_to_mp4_stream(input_path: Path):
+from typing import Iterator
+
+
+def _transcode_to_mp4_stream(input_path: Path) -> Iterator[bytes]:
     """
     Generator that yields MP4 chunks as ffmpeg produces them.
 
@@ -760,13 +781,15 @@ def _transcode_to_mp4_stream(input_path: Path):
     try:
         # Read and yield chunks as they become available
         chunk_size = 64 * 1024  # 64KB chunks
+        assert proc.stdout is not None
         while True:
             chunk = proc.stdout.read(chunk_size)
             if not chunk:
                 break
             yield chunk
     finally:
-        proc.stdout.close()
+        if proc.stdout is not None:
+            proc.stdout.close()
         proc.terminate()
         try:
             proc.wait(timeout=5)
@@ -774,8 +797,8 @@ def _transcode_to_mp4_stream(input_path: Path):
             proc.kill()
 
 
-@app.get("/attachments/{attachment_id}/stream")
-def stream_attachment(attachment_id: int):
+@app.get("/attachments/{attachment_id}/stream", response_model=None)
+def stream_attachment(attachment_id: int) -> FileResponse | StreamingResponse:
     """
     Stream a transcoded version of a video attachment.
 
@@ -815,8 +838,11 @@ def stream_attachment(attachment_id: int):
     )
 
 
+from typing import Any
+
+
 @app.get("/health")
-def health_check() -> dict:
+def health_check() -> dict[str, Any]:
     """Health check endpoint with database access status."""
     db_ok = check_db_access()
     return {
@@ -829,17 +855,20 @@ def health_check() -> dict:
 
 
 @app.get("/contacts/{handle}", response_model=ContactResponse)
-def get_contact(handle: str):
+def get_contact(handle: str) -> JSONResponse:
     """
     Look up contact information for a phone number or email.
 
     Returns contact name, initials, and whether they have a photo.
     Cache-Control header uses configured contact_cache_ttl.
     """
+    logger.info("Looking up contact: %s", handle)
     if not contacts_available():
+        logger.warning("Contact lookup not available")
         raise HTTPException(status_code=503, detail="Contact lookup not available")
 
     contact = resolve_contact(handle)
+    logger.info("Resolved contact %s -> %s", handle, contact.name or "(no match)")
     response_data = _contact_to_response(contact)
 
     # Use configured cache TTL
@@ -851,7 +880,7 @@ def get_contact(handle: str):
 
 
 @app.get("/contacts/{handle}/image")
-def get_contact_image(handle: str):
+def get_contact_image(handle: str) -> StreamingResponse:
     """
     Get the contact photo for a phone number or email.
 
@@ -886,6 +915,7 @@ class ConfigResponse(BaseModel):
     vim_bindings: bool = False
     api_token: str = ""
     contact_cache_ttl: int = 86400  # seconds
+    log_level: str = "WARNING"
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -896,6 +926,7 @@ class ConfigUpdateRequest(BaseModel):
     vim_bindings: bool | None = None
     api_token: str | None = None
     contact_cache_ttl: int | None = None
+    log_level: str | None = None
 
 
 @app.get("/config", response_model=ConfigResponse)
@@ -912,6 +943,11 @@ def update_configuration(request: ConfigUpdateRequest) -> ConfigResponse:
     updates = {k: v for k, v in request.model_dump().items() if v is not None}
     if updates:
         config = update_config(updates)
+        # Reconfigure logging if log_level changed
+        if "log_level" in updates:
+            from . import setup_logging
+            setup_logging()
+            logger.info("Log level changed to %s", updates["log_level"])
     else:
         config = get_config()
     return ConfigResponse(**config)
@@ -931,7 +967,7 @@ WEBSOCKET_POLL_INTERVAL = 1.0  # seconds between polls
 async def websocket_endpoint(
     websocket: WebSocket,
     chat_id: int | None = Query(default=None, description="Filter to specific chat"),
-):
+) -> None:
     """
     WebSocket endpoint for real-time message updates.
 
@@ -945,12 +981,14 @@ async def websocket_endpoint(
     - {"type": "set_after_rowid", "rowid": N} - set the starting rowid
     """
     await websocket.accept()
+    logger.info("WebSocket connected (chat_id=%s)", chat_id)
 
     # Start with the latest rowid (don't send historical messages)
     try:
         messages = get_messages(chat_id=chat_id, limit=1)
         last_rowid = messages[0].rowid if messages else 0
     except Exception as e:
+        logger.error("WebSocket init failed: %s", e)
         await websocket.send_json({"type": "error", "message": str(e)})
         await websocket.close()
         return
@@ -967,7 +1005,7 @@ async def websocket_endpoint(
                     after_rowid=last_rowid,
                 )
             except Exception as e:
-                # Log error but don't close - might be transient
+                logger.error("WebSocket poll error: %s", e)
                 await websocket.send_json({"type": "error", "message": str(e)})
                 await asyncio.sleep(WEBSOCKET_POLL_INTERVAL)
                 continue
@@ -976,6 +1014,7 @@ async def websocket_endpoint(
                 # Sort oldest first for client processing
                 new_messages.sort(key=lambda m: m.rowid)
                 last_rowid = new_messages[-1].rowid
+                logger.info("WebSocket pushing %d new messages", len(new_messages))
 
                 await websocket.send_json({
                     "type": "messages",
@@ -998,26 +1037,29 @@ async def websocket_endpoint(
                 # Handle client commands
                 if data.get("type") == "set_after_rowid":
                     last_rowid = data.get("rowid", last_rowid)
+                    logger.info("WebSocket set after_rowid=%d", last_rowid)
             except asyncio.TimeoutError:
                 # No message from client, continue polling
                 pass
 
     except WebSocketDisconnect:
-        pass
-    except Exception:
-        # Unexpected error, close gracefully
-        pass
+        logger.info("WebSocket disconnected (chat_id=%s)", chat_id)
+    except Exception as e:
+        logger.error("WebSocket unexpected error: %s", e)
 
 
-def main():
+import signal
+import sys
+from types import FrameType
+
+
+def main() -> None:
     """Run the iMessage Gateway server."""
     import uvicorn
-    import signal
-    import sys
 
     # Check if caffeinate is enabled in config
     config = get_config()
-    caffeinate_proc = None
+    caffeinate_proc: subprocess.Popen[bytes] | None = None
 
     if config.get("prevent_sleep", False):
         try:
@@ -1035,7 +1077,7 @@ def main():
         except Exception as e:
             print(f"Warning: Failed to start caffeinate: {e}")
 
-    def cleanup(signum=None, frame=None):
+    def cleanup(signum: int | None = None, frame: FrameType | None = None) -> None:
         """Clean up caffeinate process on exit."""
         if caffeinate_proc:
             caffeinate_proc.terminate()

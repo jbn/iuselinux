@@ -204,8 +204,8 @@ def get_messages(
         LEFT JOIN chat_message_join ON message.ROWID = chat_message_join.message_id
         """
 
-        conditions = []
-        params: list = []
+        conditions: list[str] = []
+        params: list[int] = []
 
         if chat_id is not None:
             conditions.append("chat_message_join.chat_id = ?")

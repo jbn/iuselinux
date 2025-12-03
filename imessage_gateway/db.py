@@ -1,10 +1,13 @@
 """Database access for iMessage chat.db."""
 
+import logging
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
+
+logger = logging.getLogger("imessage_gateway.db")
 
 # Mac absolute time epoch: 2001-01-01 00:00:00 UTC
 MAC_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
@@ -61,6 +64,7 @@ def get_connection(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     """
     path = db_path or get_db_path()
     if not path.exists():
+        logger.error("Database not found: %s", path)
         raise FileNotFoundError(f"chat.db not found at {path}")
 
     # Check for Full Disk Access permission
@@ -68,14 +72,17 @@ def get_connection(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
         with open(path, "rb") as f:
             f.read(1)
     except PermissionError:
+        logger.error("Permission denied accessing database (need Full Disk Access)")
         raise FullDiskAccessError(path)
 
+    logger.debug("Opening database connection: %s", path)
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
     finally:
         conn.close()
+        logger.debug("Closed database connection")
 
 
 def mac_absolute_to_datetime(mac_time: int | None) -> datetime | None:

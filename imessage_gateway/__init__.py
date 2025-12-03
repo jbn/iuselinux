@@ -1,1 +1,31 @@
 """iMessage Gateway - Read and send iMessages via local API."""
+
+import logging
+import sys
+
+from .config import get_config_value
+
+
+def setup_logging() -> None:
+    """Configure logging based on config setting."""
+    level_str = get_config_value("log_level")
+    level = getattr(logging, level_str.upper(), logging.WARNING)
+
+    # Configure root logger for imessage_gateway
+    logger = logging.getLogger("imessage_gateway")
+    logger.setLevel(level)
+
+    # Only add handler if not already configured
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setLevel(level)
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+
+# Initialize logging on import
+setup_logging()

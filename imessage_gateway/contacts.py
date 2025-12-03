@@ -1,10 +1,13 @@
 """Contact resolution using macOS Contacts framework via Swift helper."""
 
 import json
+import logging
 import subprocess
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+
+logger = logging.getLogger("imessage_gateway.contacts")
 
 
 # Path to the Swift contact_lookup binary (bundled with package)
@@ -46,8 +49,10 @@ def resolve_contact(handle: str) -> ContactInfo:
         if no match is found or the binary is unavailable.
     """
     if not _check_binary():
+        logger.debug("Contact lookup binary not available")
         return ContactInfo(handle=handle)
 
+    logger.debug("Resolving contact: %s", handle)
     try:
         proc = subprocess.run(
             [str(CONTACT_LOOKUP_PATH), handle],
@@ -57,10 +62,11 @@ def resolve_contact(handle: str) -> ContactInfo:
             timeout=5,
         )
         if proc.returncode != 0:
+            logger.debug("Contact not found: %s", handle)
             return ContactInfo(handle=handle)
 
         data = json.loads(proc.stdout)
-        return ContactInfo(
+        contact = ContactInfo(
             handle=data.get("handle", handle),
             name=data.get("name"),
             given_name=data.get("givenName"),
@@ -70,7 +76,16 @@ def resolve_contact(handle: str) -> ContactInfo:
             has_image=data.get("hasImage", False),
             image_base64=data.get("imageBase64"),
         )
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
+        logger.debug("Resolved %s -> %s", handle, contact.name)
+        return contact
+    except subprocess.TimeoutExpired:
+        logger.warning("Contact lookup timed out for: %s", handle)
+        return ContactInfo(handle=handle)
+    except json.JSONDecodeError as e:
+        logger.warning("Contact lookup JSON decode error: %s", e)
+        return ContactInfo(handle=handle)
+    except OSError as e:
+        logger.warning("Contact lookup OS error: %s", e)
         return ContactInfo(handle=handle)
 
 

@@ -540,7 +540,8 @@ sendForm.addEventListener('submit', async (e) => {
         });
         if (!res.ok) {
             const err = await res.json();
-            alert('Failed to send: ' + (err.detail || 'Unknown error'));
+            const errorMsg = typeof err.detail === 'string' ? err.detail : (err.detail?.msg || err.message || JSON.stringify(err.detail) || 'Unknown error');
+            alert('Failed to send: ' + errorMsg);
         } else {
             messageInput.value = '';
             // WebSocket will receive the new message automatically
@@ -667,7 +668,8 @@ async function saveSettings() {
             closeSettings();
         } else {
             const err = await res.json();
-            alert('Failed to save settings: ' + (err.detail || 'Unknown error'));
+            const errorMsg = typeof err.detail === 'string' ? err.detail : (err.detail?.msg || err.message || JSON.stringify(err.detail) || 'Unknown error');
+            alert('Failed to save settings: ' + errorMsg);
         }
     } catch (err) {
         console.error('Failed to save settings:', err);
