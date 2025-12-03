@@ -248,3 +248,44 @@ body {
     font-size: 12px;
     opacity: 0.7;
 }
+
+/* Video download with thumbnail */
+.attachment-video-download {
+    position: relative;
+    display: inline-block;
+}
+
+.attachment-video-download a {
+    display: block;
+    position: relative;
+}
+
+.attachment-video-download .video-thumbnail {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 12px;
+    display: block;
+}
+
+.attachment-video-download .video-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,0.7));
+    padding: 20px 12px 12px;
+    border-radius: 0 0 12px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: white;
+}
+
+.attachment-video-download .download-icon {
+    font-size: 24px;
+}
+
+.attachment-video-download .file-size {
+    font-size: 12px;
+    opacity: 0.9;
+}

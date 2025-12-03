@@ -1,7 +1,12 @@
 """FastAPI server for iMessage Gateway."""
 
+import hashlib
 import io
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 from collections import deque
 from pathlib import Path
@@ -17,6 +22,26 @@ import pillow_heif
 
 # Register HEIF/HEIC support with Pillow
 pillow_heif.register_heif_opener()
+
+
+# FFmpeg availability detection
+def _check_ffmpeg() -> bool:
+    """Check if ffmpeg is available on the system."""
+    return shutil.which("ffmpeg") is not None
+
+
+def _check_ffprobe() -> bool:
+    """Check if ffprobe is available on the system."""
+    return shutil.which("ffprobe") is not None
+
+
+FFMPEG_AVAILABLE = _check_ffmpeg()
+FFPROBE_AVAILABLE = _check_ffprobe()
+
+# Thumbnail cache directory (thumbnails are small, worth caching on disk)
+CACHE_DIR = Path(tempfile.gettempdir()) / "imessage_gateway_cache"
+CACHE_DIR.mkdir(exist_ok=True)
+THUMBNAIL_CACHE_TTL = 24 * 60 * 60  # 24 hours in seconds
 
 
 # Rate limiting for send endpoint
@@ -78,6 +103,8 @@ class AttachmentResponse(BaseModel):
     filename: str | None  # Original filename
     total_bytes: int
     url: str  # URL to fetch the attachment content
+    thumbnail_url: str | None = None  # URL for video thumbnail (if ffmpeg available)
+    stream_url: str | None = None  # URL for transcoded video stream (if ffmpeg available)
 
 
 class MessageResponse(BaseModel):
@@ -148,6 +175,18 @@ def _chat_to_response(chat: Chat) -> ChatResponse:
 
 def _attachment_to_response(att: Attachment) -> AttachmentResponse:
     """Convert Attachment dataclass to response model."""
+    # Check if this is a video that needs transcoding
+    is_video = att.mime_type and att.mime_type.startswith("video/")
+    needs_transcode = is_video and att.mime_type not in ("video/mp4", "video/webm", "video/ogg")
+
+    thumbnail_url = None
+    stream_url = None
+
+    if is_video and FFMPEG_AVAILABLE:
+        thumbnail_url = f"/attachments/{att.rowid}/thumbnail"
+        if needs_transcode:
+            stream_url = f"/attachments/{att.rowid}/stream"
+
     return AttachmentResponse(
         rowid=att.rowid,
         guid=att.guid,
@@ -155,6 +194,8 @@ def _attachment_to_response(att: Attachment) -> AttachmentResponse:
         filename=att.transfer_name,  # Use original filename
         total_bytes=att.total_bytes,
         url=f"/attachments/{att.rowid}",
+        thumbnail_url=thumbnail_url,
+        stream_url=stream_url,
     )
 
 
@@ -448,6 +489,207 @@ def get_attachment_file(attachment_id: int):
     )
 
 
+def _get_video_duration(file_path: Path) -> float | None:
+    """Get video duration in seconds using ffprobe."""
+    if not FFPROBE_AVAILABLE:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(file_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            return float(result.stdout.strip())
+    except (subprocess.TimeoutExpired, ValueError):
+        pass
+    return None
+
+
+def _get_cache_key(file_path: Path, suffix: str) -> str:
+    """Generate a cache key based on file path and modification time."""
+    stat = file_path.stat()
+    key_data = f"{file_path}:{stat.st_mtime}:{stat.st_size}:{suffix}"
+    return hashlib.md5(key_data.encode()).hexdigest()
+
+
+def _is_cache_valid(cache_path: Path, ttl: int = THUMBNAIL_CACHE_TTL) -> bool:
+    """Check if a cached file exists and is still valid."""
+    if not cache_path.exists():
+        return False
+    age = time.time() - cache_path.stat().st_mtime
+    return age < ttl
+
+
+def _extract_thumbnail(file_path: Path, timestamp: float = 3.0) -> bytes | None:
+    """Extract a thumbnail frame from video at given timestamp."""
+    if not FFMPEG_AVAILABLE:
+        return None
+
+    try:
+        # Get duration to ensure we don't seek past end
+        duration = _get_video_duration(file_path)
+        if duration is not None and duration < timestamp:
+            timestamp = min(duration / 2, 1.0)  # Use midpoint or 1s for short videos
+
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-ss", str(timestamp),
+                "-i", str(file_path),
+                "-vframes", "1",
+                "-f", "image2",
+                "-c:v", "mjpeg",
+                "-q:v", "3",  # Good quality JPEG
+                "pipe:1",
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+        if result.returncode == 0 and result.stdout:
+            return result.stdout
+    except subprocess.TimeoutExpired:
+        pass
+    return None
+
+
+def _is_quicktime_video(mime_type: str | None, uti: str | None) -> bool:
+    """Check if file is a QuickTime/MOV video that needs transcoding."""
+    if mime_type and mime_type.lower() in ("video/quicktime", "video/mov"):
+        return True
+    if uti and uti.lower() in ("com.apple.quicktime-movie", "public.movie"):
+        return True
+    return False
+
+
+@app.get("/attachments/{attachment_id}/thumbnail")
+def get_attachment_thumbnail(attachment_id: int):
+    """
+    Get a thumbnail image for a video attachment.
+
+    Extracts a frame at 3 seconds (or earlier for short videos).
+    Returns 404 if ffmpeg not available or extraction fails.
+    """
+    if not FFMPEG_AVAILABLE:
+        raise HTTPException(status_code=404, detail="Thumbnails not available (ffmpeg not installed)")
+
+    attachment = get_attachment(attachment_id)
+    if attachment is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    if attachment.filename is None:
+        raise HTTPException(status_code=404, detail="Attachment has no file")
+
+    file_path = _expand_tilde(attachment.filename)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Attachment file not found on disk")
+
+    # Check disk cache first (thumbnails are small, worth caching)
+    cache_key = _get_cache_key(file_path, "thumb")
+    cache_path = CACHE_DIR / f"{cache_key}.jpg"
+
+    if _is_cache_valid(cache_path, ttl=THUMBNAIL_CACHE_TTL):
+        return FileResponse(
+            cache_path,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=86400"},  # 24h browser cache
+        )
+
+    # Extract thumbnail
+    thumbnail_data = _extract_thumbnail(file_path)
+    if thumbnail_data is None:
+        raise HTTPException(status_code=404, detail="Failed to extract thumbnail")
+
+    # Save to disk cache
+    cache_path.write_bytes(thumbnail_data)
+
+    return StreamingResponse(
+        io.BytesIO(thumbnail_data),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+def _transcode_to_mp4_bytes(input_path: Path) -> bytes | None:
+    """Transcode video to MP4 format in memory for streaming."""
+    if not FFMPEG_AVAILABLE:
+        return None
+
+    try:
+        # Transcode to stdout with fragmented MP4 for streaming
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", str(input_path),
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "23",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-movflags", "frag_keyframe+empty_moov",  # Fragmented MP4 for streaming
+                "-f", "mp4",
+                "pipe:1",
+            ],
+            capture_output=True,
+            timeout=300,  # 5 minute timeout for long videos
+        )
+        if result.returncode == 0 and result.stdout:
+            return result.stdout
+    except subprocess.TimeoutExpired:
+        pass
+    return None
+
+
+@app.get("/attachments/{attachment_id}/stream")
+def stream_attachment(attachment_id: int):
+    """
+    Stream a transcoded version of a video attachment.
+
+    MOV/QuickTime videos are transcoded to MP4 for browser playback.
+    Browser should cache response for 24 hours via Cache-Control header.
+    Returns 404 if ffmpeg not available.
+    """
+    if not FFMPEG_AVAILABLE:
+        raise HTTPException(status_code=404, detail="Streaming not available (ffmpeg not installed)")
+
+    attachment = get_attachment(attachment_id)
+    if attachment is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    if attachment.filename is None:
+        raise HTTPException(status_code=404, detail="Attachment has no file")
+
+    file_path = _expand_tilde(attachment.filename)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Attachment file not found on disk")
+
+    # If already MP4, serve directly with cache headers
+    mime_type = attachment.mime_type or ""
+    if mime_type.lower() == "video/mp4":
+        return FileResponse(
+            file_path,
+            media_type="video/mp4",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
+    # Transcode to MP4 and stream (browser caches via Cache-Control)
+    mp4_data = _transcode_to_mp4_bytes(file_path)
+    if mp4_data is None:
+        raise HTTPException(status_code=500, detail="Failed to transcode video")
+
+    return StreamingResponse(
+        io.BytesIO(mp4_data),
+        media_type="video/mp4",
+        headers={"Cache-Control": "public, max-age=86400"},  # 24h browser cache
+    )
+
+
 @app.get("/health")
 def health_check() -> dict:
     """Health check endpoint with database access status."""
@@ -455,6 +697,8 @@ def health_check() -> dict:
     return {
         "status": "ok" if db_ok else "degraded",
         "database_accessible": db_ok,
+        "ffmpeg_available": FFMPEG_AVAILABLE,
+        "ffprobe_available": FFPROBE_AVAILABLE,
     }
 
 

@@ -192,18 +192,44 @@ function renderAttachments(attachments) {
             `;
         } else if (isVideoMimeType(att.mime_type)) {
             if (isBrowserPlayableVideo(att.mime_type)) {
+                // Browser can play natively (MP4, WebM, etc.)
+                const poster = att.thumbnail_url ? `poster="${att.thumbnail_url}"` : '';
                 return `
                     <div class="attachment attachment-video">
-                        <video controls preload="metadata">
+                        <video controls preload="metadata" ${poster}>
                             <source src="${att.url}" type="${att.mime_type}">
                             <a href="${att.url}">Download video</a>
                         </video>
                     </div>
                 `;
+            } else if (att.stream_url) {
+                // MOV/QuickTime with ffmpeg transcoding available
+                const poster = att.thumbnail_url ? `poster="${att.thumbnail_url}"` : '';
+                return `
+                    <div class="attachment attachment-video">
+                        <video controls preload="none" ${poster}>
+                            <source src="${att.stream_url}" type="video/mp4">
+                            <a href="${att.url}">Download video</a>
+                        </video>
+                    </div>
+                `;
             } else {
-                // MOV/QuickTime - show as downloadable video file
+                // No ffmpeg - show as downloadable video file with thumbnail if available
                 const sizeKb = Math.round(att.total_bytes / 1024);
                 const sizeStr = sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb} KB`;
+                if (att.thumbnail_url) {
+                    return `
+                        <div class="attachment attachment-video-download">
+                            <a href="${att.url}" download="${escapeHtml(att.filename || 'video')}">
+                                <img src="${att.thumbnail_url}" alt="Video thumbnail" class="video-thumbnail">
+                                <div class="video-overlay">
+                                    <span class="download-icon">⬇️</span>
+                                    <span class="file-size">${sizeStr}</span>
+                                </div>
+                            </a>
+                        </div>
+                    `;
+                }
                 return `
                     <div class="attachment attachment-file attachment-video-file">
                         <a href="${att.url}" download="${escapeHtml(att.filename || 'video')}">
