@@ -833,19 +833,30 @@ async def websocket_endpoint(
     await websocket.accept()
 
     # Start with the latest rowid (don't send historical messages)
-    messages = get_messages(chat_id=chat_id, limit=1)
-    last_rowid = messages[0].rowid if messages else 0
+    try:
+        messages = get_messages(chat_id=chat_id, limit=1)
+        last_rowid = messages[0].rowid if messages else 0
+    except Exception as e:
+        await websocket.send_json({"type": "error", "message": str(e)})
+        await websocket.close()
+        return
 
     ping_counter = 0
 
     try:
         while True:
             # Check for new messages
-            new_messages = get_messages(
-                chat_id=chat_id,
-                limit=100,
-                after_rowid=last_rowid,
-            )
+            try:
+                new_messages = get_messages(
+                    chat_id=chat_id,
+                    limit=100,
+                    after_rowid=last_rowid,
+                )
+            except Exception as e:
+                # Log error but don't close - might be transient
+                await websocket.send_json({"type": "error", "message": str(e)})
+                await asyncio.sleep(WEBSOCKET_POLL_INTERVAL)
+                continue
 
             if new_messages:
                 # Sort oldest first for client processing
@@ -878,6 +889,9 @@ async def websocket_endpoint(
                 pass
 
     except WebSocketDisconnect:
+        pass
+    except Exception:
+        # Unexpected error, close gracefully
         pass
 
 

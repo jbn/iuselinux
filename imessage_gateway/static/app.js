@@ -333,6 +333,8 @@ function escapeHtml(text) {
 function connectWebSocket() {
     // Close existing connection if any
     if (websocket) {
+        // Remove onclose handler before closing to prevent reconnect loop
+        websocket.onclose = null;
         websocket.close();
         websocket = null;
     }
@@ -343,20 +345,20 @@ function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws?chat_id=${currentChatId}`;
 
-    websocket = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl);
 
-    websocket.onopen = () => {
+    ws.onopen = () => {
         console.log('WebSocket connected');
         // Tell server to start from our current position
         if (lastMessageId > 0) {
-            websocket.send(JSON.stringify({
+            ws.send(JSON.stringify({
                 type: 'set_after_rowid',
                 rowid: lastMessageId
             }));
         }
     };
 
-    websocket.onmessage = (event) => {
+    ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
 
         if (data.type === 'messages' && data.data.length > 0) {
@@ -366,18 +368,24 @@ function connectWebSocket() {
         // Ignore ping messages
     };
 
-    websocket.onclose = () => {
+    ws.onclose = () => {
         console.log('WebSocket closed, reconnecting in 3s...');
-        setTimeout(() => {
-            if (currentChatId) {
-                connectWebSocket();
-            }
-        }, 3000);
+        // Only reconnect if this is still our active websocket
+        if (websocket === ws) {
+            websocket = null;
+            setTimeout(() => {
+                if (currentChatId && !websocket) {
+                    connectWebSocket();
+                }
+            }, 3000);
+        }
     };
 
-    websocket.onerror = (err) => {
+    ws.onerror = (err) => {
         console.error('WebSocket error:', err);
     };
+
+    websocket = ws;
 }
 
 sendForm.addEventListener('submit', async (e) => {
