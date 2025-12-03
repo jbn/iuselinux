@@ -424,12 +424,46 @@ function applyConfig(config) {
     }
 }
 
-function openSettings() {
+async function openSettings() {
     // Populate form with current values
     settingPreventSleep.checked = currentConfig.prevent_sleep || false;
     settingVimBindings.checked = currentConfig.vim_bindings || false;
     settingCustomCss.value = currentConfig.custom_css || '';
     settingsModal.classList.remove('hidden');
+
+    // Fetch health status for about section
+    await updateHealthStatus();
+}
+
+async function updateHealthStatus() {
+    const statusDb = document.getElementById('status-db');
+    const statusFfmpeg = document.getElementById('status-ffmpeg');
+
+    try {
+        const res = await fetch('/health');
+        const health = await res.json();
+
+        if (health.database_accessible) {
+            statusDb.textContent = 'Connected';
+            statusDb.className = 'status-value ok';
+        } else {
+            statusDb.textContent = 'Not accessible';
+            statusDb.className = 'status-value error';
+        }
+
+        if (health.ffmpeg_available) {
+            statusFfmpeg.textContent = 'Available';
+            statusFfmpeg.className = 'status-value ok';
+        } else {
+            statusFfmpeg.textContent = 'Not installed';
+            statusFfmpeg.className = 'status-value warning';
+        }
+    } catch (err) {
+        statusDb.textContent = 'Error';
+        statusDb.className = 'status-value error';
+        statusFfmpeg.textContent = 'Error';
+        statusFfmpeg.className = 'status-value error';
+    }
 }
 
 function closeSettings() {

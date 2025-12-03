@@ -480,3 +480,62 @@ body {
 .btn-secondary:hover {
     background: #e0e0e0;
 }
+
+/* About section */
+.setting-divider {
+    height: 1px;
+    background: #e0e0e0;
+    margin: 20px 0;
+}
+
+.about-section h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin: 0 0 12px 0;
+}
+
+.about-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    margin: 0 0 4px 0;
+}
+
+.about-name span {
+    color: #666;
+    font-weight: normal;
+}
+
+.about-description {
+    font-size: 13px;
+    color: #666;
+    margin: 0 0 12px 0;
+}
+
+.about-status {
+    display: flex;
+    gap: 8px;
+    font-size: 13px;
+    margin: 4px 0;
+}
+
+.status-label {
+    color: #666;
+}
+
+.status-value {
+    font-weight: 500;
+}
+
+.status-value.ok {
+    color: #34c759;
+}
+
+.status-value.warning {
+    color: #ff9500;
+}
+
+.status-value.error {
+    color: #ff3b30;
+}
