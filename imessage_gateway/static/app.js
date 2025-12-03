@@ -9,6 +9,7 @@ let currentChatId = null;
 let currentRecipient = null;
 let websocket = null;
 let lastMessageId = 0;
+let allMessages = [];  // Store all messages for current chat
 
 async function loadChats() {
     try {
@@ -84,6 +85,7 @@ function selectChat(item) {
     }
 
     lastMessageId = 0;
+    allMessages = [];
     loadMessages();
     connectWebSocket();
 }
@@ -94,7 +96,8 @@ async function loadMessages() {
         let url = `/messages?chat_id=${currentChatId}&limit=100`;
         const res = await fetch(url);
         const messages = await res.json();
-        renderMessages(messages);
+        allMessages = messages;
+        renderMessages(allMessages);
         if (messages.length > 0) {
             lastMessageId = Math.max(...messages.map(m => m.rowid));
         }
@@ -134,14 +137,16 @@ function renderMessages(messages) {
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
 
-function appendMessages(messages) {
-    const sorted = [...messages].sort((a, b) => a.rowid - b.rowid);
-    const emptyState = messagesDiv.querySelector('.empty-state');
-    if (emptyState) emptyState.remove();
-    sorted.forEach(msg => {
-        messagesDiv.insertAdjacentHTML('beforeend', messageHtml(msg));
-    });
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+function appendMessages(newMessages) {
+    // Add new messages to our collection, avoiding duplicates
+    const existingIds = new Set(allMessages.map(m => m.rowid));
+    for (const msg of newMessages) {
+        if (!existingIds.has(msg.rowid)) {
+            allMessages.push(msg);
+        }
+    }
+    // Re-render with all messages sorted
+    renderMessages(allMessages);
 }
 
 // Tapback emoji mapping
