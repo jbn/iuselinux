@@ -5,11 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>iMessage Gateway</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <style id="custom-css"></style>
 </head>
 <body>
     <div class="container">
         <aside class="sidebar">
-            <h2>Chats</h2>
+            <div class="sidebar-header">
+                <h2>Chats</h2>
+                <button id="settings-btn" class="settings-btn" title="Settings">&#9881;</button>
+            </div>
             <div id="chat-list" class="chat-list"></div>
         </aside>
         <main class="main">
@@ -23,6 +27,43 @@
             </form>
         </main>
     </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button id="settings-close" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="setting-group">
+                    <label class="setting-label">
+                        <input type="checkbox" id="setting-prevent-sleep">
+                        <span>Prevent Sleep</span>
+                    </label>
+                    <p class="setting-description">Keep your Mac awake while the gateway is running</p>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label">
+                        <input type="checkbox" id="setting-vim-bindings">
+                        <span>Vim Keybindings</span>
+                    </label>
+                    <p class="setting-description">Enable vim-style keybindings for message input</p>
+                </div>
+                <div class="setting-group">
+                    <label class="setting-label-block">Custom CSS</label>
+                    <p class="setting-description">Add custom styles to customize the appearance</p>
+                    <textarea id="setting-custom-css" rows="6" placeholder="/* Add your custom CSS here */"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="settings-save" class="btn-primary">Save</button>
+                <button id="settings-cancel" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/app.js"></script>
 </body>
 </html>

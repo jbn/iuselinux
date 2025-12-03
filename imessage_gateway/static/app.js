@@ -5,11 +5,23 @@ const sendForm = document.getElementById('send-form');
 const messageInput = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
 
+// Settings elements
+const settingsBtn = document.getElementById('settings-btn');
+const settingsModal = document.getElementById('settings-modal');
+const settingsClose = document.getElementById('settings-close');
+const settingsSave = document.getElementById('settings-save');
+const settingsCancel = document.getElementById('settings-cancel');
+const settingPreventSleep = document.getElementById('setting-prevent-sleep');
+const settingVimBindings = document.getElementById('setting-vim-bindings');
+const settingCustomCss = document.getElementById('setting-custom-css');
+const customCssStyle = document.getElementById('custom-css');
+
 let currentChatId = null;
 let currentRecipient = null;
 let websocket = null;
 let lastMessageId = 0;
 let allMessages = [];  // Store all messages for current chat
+let currentConfig = {}; // Store current configuration
 
 async function loadChats() {
     try {
@@ -394,5 +406,79 @@ sendForm.addEventListener('submit', async (e) => {
     }
 });
 
+// Settings functions
+async function loadConfig() {
+    try {
+        const res = await fetch('/config');
+        currentConfig = await res.json();
+        applyConfig(currentConfig);
+    } catch (err) {
+        console.error('Failed to load config:', err);
+    }
+}
+
+function applyConfig(config) {
+    // Apply custom CSS
+    if (customCssStyle) {
+        customCssStyle.textContent = config.custom_css || '';
+    }
+}
+
+function openSettings() {
+    // Populate form with current values
+    settingPreventSleep.checked = currentConfig.prevent_sleep || false;
+    settingVimBindings.checked = currentConfig.vim_bindings || false;
+    settingCustomCss.value = currentConfig.custom_css || '';
+    settingsModal.classList.remove('hidden');
+}
+
+function closeSettings() {
+    settingsModal.classList.add('hidden');
+}
+
+async function saveSettings() {
+    const updates = {
+        prevent_sleep: settingPreventSleep.checked,
+        vim_bindings: settingVimBindings.checked,
+        custom_css: settingCustomCss.value
+    };
+
+    try {
+        const res = await fetch('/config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates)
+        });
+        if (res.ok) {
+            currentConfig = await res.json();
+            applyConfig(currentConfig);
+            closeSettings();
+        } else {
+            const err = await res.json();
+            alert('Failed to save settings: ' + (err.detail || 'Unknown error'));
+        }
+    } catch (err) {
+        console.error('Failed to save settings:', err);
+        alert('Failed to save settings');
+    }
+}
+
+// Settings event listeners
+settingsBtn.addEventListener('click', openSettings);
+settingsClose.addEventListener('click', closeSettings);
+settingsCancel.addEventListener('click', closeSettings);
+settingsSave.addEventListener('click', saveSettings);
+
+// Close modal on backdrop click
+settingsModal.querySelector('.modal-backdrop').addEventListener('click', closeSettings);
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !settingsModal.classList.contains('hidden')) {
+        closeSettings();
+    }
+});
+
 // Initial load
+loadConfig();
 loadChats();

@@ -52,6 +52,7 @@ _send_timestamps: deque[float] = deque()
 from .db import FullDiskAccessError, check_db_access
 from .messages import get_chats, get_messages, get_attachment, Chat, Message, Attachment
 from .sender import send_imessage, SendResult
+from .config import get_config, update_config, DEFAULTS as CONFIG_DEFAULTS
 
 app = FastAPI(
     title="iMessage Gateway",
@@ -700,6 +701,48 @@ def health_check() -> dict:
         "ffmpeg_available": FFMPEG_AVAILABLE,
         "ffprobe_available": FFPROBE_AVAILABLE,
     }
+
+
+# Configuration endpoints
+class ConfigResponse(BaseModel):
+    """Configuration response."""
+
+    custom_css: str = ""
+    prevent_sleep: bool = False
+    vim_bindings: bool = False
+
+
+class ConfigUpdateRequest(BaseModel):
+    """Request to update configuration."""
+
+    custom_css: str | None = None
+    prevent_sleep: bool | None = None
+    vim_bindings: bool | None = None
+
+
+@app.get("/config", response_model=ConfigResponse)
+def get_configuration() -> ConfigResponse:
+    """Get current configuration."""
+    config = get_config()
+    return ConfigResponse(**config)
+
+
+@app.put("/config", response_model=ConfigResponse)
+def update_configuration(request: ConfigUpdateRequest) -> ConfigResponse:
+    """Update configuration values."""
+    # Only update fields that were provided (not None)
+    updates = {k: v for k, v in request.model_dump().items() if v is not None}
+    if updates:
+        config = update_config(updates)
+    else:
+        config = get_config()
+    return ConfigResponse(**config)
+
+
+@app.get("/config/defaults", response_model=ConfigResponse)
+def get_config_defaults() -> ConfigResponse:
+    """Get default configuration values."""
+    return ConfigResponse(**CONFIG_DEFAULTS)
 
 
 # WebSocket for real-time updates
