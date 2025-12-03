@@ -17,6 +17,7 @@ DEFAULTS: dict[str, Any] = {
     "custom_css": "",
     "prevent_sleep": True,  # Keep Mac awake while server is running
     "vim_bindings": False,
+    "api_token": "",  # Empty means no authentication required
 }
 
 

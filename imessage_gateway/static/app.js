@@ -14,6 +14,7 @@ const settingsCancel = document.getElementById('settings-cancel');
 const settingPreventSleep = document.getElementById('setting-prevent-sleep');
 const settingVimBindings = document.getElementById('setting-vim-bindings');
 const settingCustomCss = document.getElementById('setting-custom-css');
+const settingApiToken = document.getElementById('setting-api-token');
 const customCssStyle = document.getElementById('custom-css');
 
 let currentChatId = null;
@@ -442,6 +443,7 @@ async function openSettings() {
     settingPreventSleep.checked = currentConfig.prevent_sleep || false;
     settingVimBindings.checked = currentConfig.vim_bindings || false;
     settingCustomCss.value = currentConfig.custom_css || '';
+    settingApiToken.value = currentConfig.api_token || '';
     settingsModal.classList.remove('hidden');
 
     // Fetch health status for about section
@@ -487,7 +489,8 @@ async function saveSettings() {
     const updates = {
         prevent_sleep: settingPreventSleep.checked,
         vim_bindings: settingVimBindings.checked,
-        custom_css: settingCustomCss.value
+        custom_css: settingCustomCss.value,
+        api_token: settingApiToken.value
     };
 
     try {

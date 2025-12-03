@@ -448,6 +448,23 @@ body {
     border-color: #007aff;
 }
 
+.setting-group input[type="password"],
+.setting-group input[type="text"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 13px;
+    box-sizing: border-box;
+}
+
+.setting-group input[type="password"]:focus,
+.setting-group input[type="text"]:focus {
+    outline: none;
+    border-color: #007aff;
+}
+
 /* Buttons */
 .btn-primary {
     padding: 10px 20px;

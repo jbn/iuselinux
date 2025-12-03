@@ -13,7 +13,8 @@ from pathlib import Path
 
 import asyncio
 
-from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
@@ -52,7 +53,7 @@ _send_timestamps: deque[float] = deque()
 from .db import FullDiskAccessError, check_db_access
 from .messages import get_chats, get_messages, get_attachment, Chat, Message, Attachment
 from .sender import send_imessage, SendResult
-from .config import get_config, update_config, DEFAULTS as CONFIG_DEFAULTS
+from .config import get_config, get_config_value, update_config, DEFAULTS as CONFIG_DEFAULTS
 
 app = FastAPI(
     title="iMessage Gateway",
@@ -63,6 +64,67 @@ app = FastAPI(
 # Serve static files
 static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+# Authentication
+security = HTTPBearer(auto_error=False)
+
+
+def verify_token(credentials: HTTPAuthorizationCredentials | None = Depends(security)) -> None:
+    """Verify API token if authentication is enabled."""
+    api_token = get_config_value("api_token")
+
+    # No token configured = no auth required
+    if not api_token:
+        return
+
+    # Token configured but no credentials provided
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="API token required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Verify token
+    if credentials.credentials != api_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+# Public routes that don't require auth (UI and static assets)
+PUBLIC_PATHS = {"/", "/health"}
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Check authentication for API endpoints."""
+    path = request.url.path
+
+    # Skip auth for public paths and static files
+    if path in PUBLIC_PATHS or path.startswith("/static"):
+        return await call_next(request)
+
+    # Check if auth is enabled
+    api_token = get_config_value("api_token")
+    if not api_token:
+        return await call_next(request)
+
+    # Verify token
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        if token == api_token:
+            return await call_next(request)
+
+    # Auth failed
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "API token required"},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 @app.exception_handler(FullDiskAccessError)
@@ -710,6 +772,7 @@ class ConfigResponse(BaseModel):
     custom_css: str = ""
     prevent_sleep: bool = True
     vim_bindings: bool = False
+    api_token: str = ""
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -718,6 +781,7 @@ class ConfigUpdateRequest(BaseModel):
     custom_css: str | None = None
     prevent_sleep: bool | None = None
     vim_bindings: bool | None = None
+    api_token: str | None = None
 
 
 @app.get("/config", response_model=ConfigResponse)
