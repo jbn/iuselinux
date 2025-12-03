@@ -190,3 +190,61 @@ body {
     padding: 8px 0;
     margin: 8px 0;
 }
+
+/* Attachments */
+.attachment {
+    margin-top: 8px;
+}
+
+.attachment:first-child {
+    margin-top: 0;
+}
+
+.attachment-image img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 12px;
+    display: block;
+}
+
+.attachment-image a {
+    display: block;
+}
+
+.attachment-video video {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 12px;
+    display: block;
+}
+
+.attachment-file a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 8px;
+    text-decoration: none;
+    color: inherit;
+}
+
+.message.from-me .attachment-file a {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.attachment-file .file-icon {
+    font-size: 20px;
+}
+
+.attachment-file .file-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.attachment-file .file-size {
+    font-size: 12px;
+    opacity: 0.7;
+}

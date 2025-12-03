@@ -169,6 +169,56 @@ const TAPBACK_EMOJI = {
     question: '❓'
 };
 
+function isImageMimeType(mimeType) {
+    if (!mimeType) return false;
+    return mimeType.startsWith('image/');
+}
+
+function isVideoMimeType(mimeType) {
+    if (!mimeType) return false;
+    return mimeType.startsWith('video/');
+}
+
+function renderAttachments(attachments) {
+    if (!attachments || attachments.length === 0) return '';
+
+    return attachments.map(att => {
+        if (isImageMimeType(att.mime_type)) {
+            // For HEIC, browsers may not support it - show anyway, they'll see broken image
+            // Could add server-side conversion in future
+            return `
+                <div class="attachment attachment-image">
+                    <a href="${att.url}" target="_blank">
+                        <img src="${att.url}" alt="${escapeHtml(att.filename || 'Image')}" loading="lazy">
+                    </a>
+                </div>
+            `;
+        } else if (isVideoMimeType(att.mime_type)) {
+            return `
+                <div class="attachment attachment-video">
+                    <video controls preload="metadata">
+                        <source src="${att.url}" type="${att.mime_type}">
+                        <a href="${att.url}">Download video</a>
+                    </video>
+                </div>
+            `;
+        } else {
+            // Generic file attachment
+            const sizeKb = Math.round(att.total_bytes / 1024);
+            const sizeStr = sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb} KB`;
+            return `
+                <div class="attachment attachment-file">
+                    <a href="${att.url}" download="${escapeHtml(att.filename || 'file')}">
+                        <span class="file-icon">📎</span>
+                        <span class="file-name">${escapeHtml(att.filename || 'Attachment')}</span>
+                        <span class="file-size">${sizeStr}</span>
+                    </a>
+                </div>
+            `;
+        }
+    }).join('');
+}
+
 function messageHtml(msg) {
     const cls = msg.is_from_me ? 'from-me' : 'from-them';
 
@@ -183,9 +233,21 @@ function messageHtml(msg) {
     }
 
     const text = msg.text || '';
+    const attachmentsHtml = renderAttachments(msg.attachments);
+
+    // If we only have attachments and no text, don't show empty text bubble
+    if (!text && attachmentsHtml) {
+        return `
+            <div class="message ${cls}">
+                ${attachmentsHtml}
+            </div>
+        `;
+    }
+
     return `
         <div class="message ${cls}">
-            <div class="text">${escapeHtml(text)}</div>
+            ${text ? `<div class="text">${escapeHtml(text)}</div>` : ''}
+            ${attachmentsHtml}
         </div>
     `;
 }
