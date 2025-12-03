@@ -834,12 +834,20 @@ def get_contact(handle: str):
     Look up contact information for a phone number or email.
 
     Returns contact name, initials, and whether they have a photo.
+    Cache-Control header uses configured contact_cache_ttl.
     """
     if not contacts_available():
         raise HTTPException(status_code=503, detail="Contact lookup not available")
 
     contact = resolve_contact(handle)
-    return _contact_to_response(contact)
+    response_data = _contact_to_response(contact)
+
+    # Use configured cache TTL
+    cache_ttl = get_config_value("contact_cache_ttl")
+    return JSONResponse(
+        content=response_data.model_dump(),
+        headers={"Cache-Control": f"public, max-age={cache_ttl}"},
+    )
 
 
 @app.get("/contacts/{handle}/image")
@@ -848,6 +856,7 @@ def get_contact_image(handle: str):
     Get the contact photo for a phone number or email.
 
     Returns the image as JPEG or the original format from Contacts.
+    Cache-Control header uses configured contact_cache_ttl.
     """
     if not contacts_available():
         raise HTTPException(status_code=503, detail="Contact lookup not available")
@@ -859,10 +868,12 @@ def get_contact_image(handle: str):
     import base64
     image_data = base64.b64decode(contact.image_base64)
 
+    # Use configured cache TTL
+    cache_ttl = get_config_value("contact_cache_ttl")
     return StreamingResponse(
         io.BytesIO(image_data),
         media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=3600"},  # 1h cache
+        headers={"Cache-Control": f"public, max-age={cache_ttl}"},
     )
 
 
@@ -874,6 +885,7 @@ class ConfigResponse(BaseModel):
     prevent_sleep: bool = True
     vim_bindings: bool = False
     api_token: str = ""
+    contact_cache_ttl: int = 86400  # seconds
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -883,6 +895,7 @@ class ConfigUpdateRequest(BaseModel):
     prevent_sleep: bool | None = None
     vim_bindings: bool | None = None
     api_token: str | None = None
+    contact_cache_ttl: int | None = None
 
 
 @app.get("/config", response_model=ConfigResponse)

@@ -59,6 +59,9 @@ body {
 }
 
 .chat-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     padding: 12px 16px;
     border-bottom: 1px solid #f0f0f0;
     cursor: pointer;
@@ -74,14 +77,57 @@ body {
     color: #fff;
 }
 
+.chat-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #e0e0e0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.chat-item.active .chat-avatar {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.chat-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.chat-avatar-initials {
+    font-size: 14px;
+    font-weight: 600;
+    color: #666;
+}
+
+.chat-item.active .chat-avatar-initials {
+    color: #fff;
+}
+
+.chat-info {
+    flex: 1;
+    min-width: 0;
+}
+
 .chat-item .chat-name {
     font-weight: 500;
     margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .chat-item .chat-identifier {
     font-size: 12px;
     opacity: 0.7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .main {
@@ -129,6 +175,66 @@ body {
     align-self: flex-start;
     background: #e9e9eb;
     color: #000;
+}
+
+/* Message wrapper for sender info */
+.message-wrapper {
+    display: flex;
+    flex-direction: column;
+    max-width: 70%;
+}
+
+.message-wrapper.from-me {
+    align-self: flex-end;
+    align-items: flex-end;
+}
+
+.message-wrapper.from-them {
+    align-self: flex-start;
+    align-items: flex-start;
+}
+
+.message-wrapper .message {
+    max-width: 100%;
+}
+
+/* Sender info for received messages */
+.message-sender {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    padding-left: 4px;
+}
+
+.msg-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #e0e0e0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.msg-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.msg-avatar-initials {
+    font-size: 10px;
+    font-weight: 600;
+    color: #666;
+}
+
+.sender-name {
+    font-size: 12px;
+    color: #666;
+    font-weight: 500;
 }
 
 

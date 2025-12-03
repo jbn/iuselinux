@@ -28,6 +28,79 @@ let currentConfig = {}; // Store current configuration
 let vimMode = 'insert'; // 'insert' or 'normal'
 let vimEnabled = false;
 
+// Contact cache - stores resolved contacts with expiry
+const contactCache = new Map();
+let contactCacheTtl = 86400; // Default 24 hours, updated from config
+
+function getCachedContact(handle) {
+    const cached = contactCache.get(handle);
+    if (!cached) return null;
+    if (Date.now() > cached.expiresAt) {
+        contactCache.delete(handle);
+        return null;
+    }
+    return cached.data;
+}
+
+function setCachedContact(handle, data, ttlSeconds) {
+    contactCache.set(handle, {
+        data: data,
+        expiresAt: Date.now() + (ttlSeconds * 1000)
+    });
+}
+
+async function resolveContact(handle) {
+    if (!handle) return null;
+
+    // Check cache first
+    const cached = getCachedContact(handle);
+    if (cached !== null) return cached;
+
+    try {
+        const res = await fetch(`/contacts/${encodeURIComponent(handle)}`);
+        if (!res.ok) {
+            // Cache negative result too (but shorter TTL)
+            setCachedContact(handle, null, 300); // 5 min for 404s
+            return null;
+        }
+
+        // Parse Cache-Control header for TTL
+        const cacheControl = res.headers.get('Cache-Control') || '';
+        const maxAgeMatch = cacheControl.match(/max-age=(\d+)/);
+        const ttl = maxAgeMatch ? parseInt(maxAgeMatch[1]) : contactCacheTtl;
+
+        const contact = await res.json();
+        setCachedContact(handle, contact, ttl);
+        return contact;
+    } catch (err) {
+        console.error('Failed to resolve contact:', handle, err);
+        return null;
+    }
+}
+
+function getContactDisplayName(contact, fallback) {
+    if (contact && contact.name) {
+        return contact.name;
+    }
+    return fallback || 'Unknown';
+}
+
+function getContactInitials(contact, fallback) {
+    if (contact && contact.initials) {
+        return contact.initials;
+    }
+    // Generate initials from fallback (phone/email)
+    if (fallback) {
+        if (fallback.includes('@')) {
+            return fallback.charAt(0).toUpperCase();
+        }
+        // For phone, use last 2 digits
+        const digits = fallback.replace(/\D/g, '');
+        return digits.slice(-2);
+    }
+    return '?';
+}
+
 async function loadChats() {
     try {
         const res = await fetch('/chats?limit=100');
@@ -40,7 +113,12 @@ async function loadChats() {
 }
 
 function getChatDisplayName(chat) {
-    // For 1:1 chats, prefer identifier (phone/email)
+    // For 1:1 chats, prefer contact name if available
+    if (chat.contact && chat.contact.name) {
+        return chat.contact.name;
+    }
+
+    // For 1:1 chats without contact, use identifier (phone/email)
     if (chat.identifier && !chat.identifier.startsWith('chat')) {
         return chat.identifier;
     }
@@ -67,17 +145,45 @@ function getChatDisplayName(chat) {
     return 'Unknown';
 }
 
+function getChatInitials(chat) {
+    if (chat.contact && chat.contact.initials) {
+        return chat.contact.initials;
+    }
+    // Generate from identifier
+    return getContactInitials(null, chat.identifier);
+}
+
+function getChatAvatarHtml(chat) {
+    if (chat.contact && chat.contact.has_image && chat.contact.image_url) {
+        return `<img src="${chat.contact.image_url}" alt="" class="chat-avatar-img">`;
+    }
+    const initials = getChatInitials(chat);
+    return `<span class="chat-avatar-initials">${escapeHtml(initials)}</span>`;
+}
+
 function renderChats(chats) {
     if (chats.length === 0) {
         chatList.innerHTML = '<div class="empty-state">No chats found</div>';
         return;
     }
-    chatList.innerHTML = chats.map(chat => `
-        <div class="chat-item" data-id="${chat.rowid}" data-identifier="${chat.identifier || ''}">
-            <div class="chat-name">${getChatDisplayName(chat)}</div>
-            <div class="chat-identifier">${chat.identifier || ''}</div>
-        </div>
-    `).join('');
+    chatList.innerHTML = chats.map(chat => {
+        const displayName = getChatDisplayName(chat);
+        const avatarHtml = getChatAvatarHtml(chat);
+        // Show identifier as subtitle only if different from display name
+        const subtitle = (chat.contact && chat.contact.name && chat.identifier)
+            ? chat.identifier
+            : '';
+
+        return `
+            <div class="chat-item" data-id="${chat.rowid}" data-identifier="${chat.identifier || ''}">
+                <div class="chat-avatar">${avatarHtml}</div>
+                <div class="chat-info">
+                    <div class="chat-name">${escapeHtml(displayName)}</div>
+                    ${subtitle ? `<div class="chat-identifier">${escapeHtml(subtitle)}</div>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
 
     chatList.querySelectorAll('.chat-item').forEach(item => {
         item.addEventListener('click', () => selectChat(item));
@@ -274,6 +380,29 @@ function renderAttachments(attachments) {
     }).join('');
 }
 
+function getMessageSenderHtml(msg) {
+    if (msg.is_from_me) return '';
+
+    // Get sender name from contact or handle
+    const contact = msg.contact;
+    const senderName = getContactDisplayName(contact, msg.handle_id);
+    const initials = getContactInitials(contact, msg.handle_id);
+
+    let avatarHtml;
+    if (contact && contact.has_image && contact.image_url) {
+        avatarHtml = `<img src="${contact.image_url}" alt="" class="msg-avatar-img">`;
+    } else {
+        avatarHtml = `<span class="msg-avatar-initials">${escapeHtml(initials)}</span>`;
+    }
+
+    return `
+        <div class="message-sender">
+            <div class="msg-avatar">${avatarHtml}</div>
+            <span class="sender-name">${escapeHtml(senderName)}</span>
+        </div>
+    `;
+}
+
 function messageHtml(msg) {
     const cls = msg.is_from_me ? 'from-me' : 'from-them';
 
@@ -289,20 +418,27 @@ function messageHtml(msg) {
 
     const text = msg.text || '';
     const attachmentsHtml = renderAttachments(msg.attachments);
+    const senderHtml = getMessageSenderHtml(msg);
 
     // If we only have attachments and no text, don't show empty text bubble
     if (!text && attachmentsHtml) {
         return `
-            <div class="message ${cls}">
-                ${attachmentsHtml}
+            <div class="message-wrapper ${cls}">
+                ${senderHtml}
+                <div class="message ${cls}">
+                    ${attachmentsHtml}
+                </div>
             </div>
         `;
     }
 
     return `
-        <div class="message ${cls}">
-            ${text ? `<div class="text">${escapeHtml(text)}</div>` : ''}
-            ${attachmentsHtml}
+        <div class="message-wrapper ${cls}">
+            ${senderHtml}
+            <div class="message ${cls}">
+                ${text ? `<div class="text">${escapeHtml(text)}</div>` : ''}
+                ${attachmentsHtml}
+            </div>
         </div>
     `;
 }
@@ -444,6 +580,9 @@ function applyConfig(config) {
     } else {
         removeVimModeIndicator();
     }
+
+    // Update contact cache TTL
+    contactCacheTtl = config.contact_cache_ttl || 86400;
 }
 
 async function openSettings() {
@@ -461,6 +600,7 @@ async function openSettings() {
 async function updateHealthStatus() {
     const statusDb = document.getElementById('status-db');
     const statusFfmpeg = document.getElementById('status-ffmpeg');
+    const statusContacts = document.getElementById('status-contacts');
 
     try {
         const res = await fetch('/health');
@@ -481,11 +621,25 @@ async function updateHealthStatus() {
             statusFfmpeg.textContent = 'Not installed';
             statusFfmpeg.className = 'status-value warning';
         }
+
+        if (statusContacts) {
+            if (health.contacts_available) {
+                statusContacts.textContent = 'Available';
+                statusContacts.className = 'status-value ok';
+            } else {
+                statusContacts.textContent = 'Not available';
+                statusContacts.className = 'status-value warning';
+            }
+        }
     } catch (err) {
         statusDb.textContent = 'Error';
         statusDb.className = 'status-value error';
         statusFfmpeg.textContent = 'Error';
         statusFfmpeg.className = 'status-value error';
+        if (statusContacts) {
+            statusContacts.textContent = 'Error';
+            statusContacts.className = 'status-value error';
+        }
     }
 }
 

@@ -18,6 +18,7 @@ DEFAULTS: dict[str, Any] = {
     "prevent_sleep": True,  # Keep Mac awake while server is running
     "vim_bindings": False,
     "api_token": "",  # Empty means no authentication required
+    "contact_cache_ttl": 86400,  # Contact cache TTL in seconds (default 24 hours)
 }
 
 
