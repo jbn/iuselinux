@@ -54,6 +54,7 @@ from .db import FullDiskAccessError, check_db_access
 from .messages import get_chats, get_messages, get_attachment, Chat, Message, Attachment
 from .sender import send_imessage, SendResult
 from .config import get_config, get_config_value, update_config, DEFAULTS as CONFIG_DEFAULTS
+from .contacts import resolve_contact, is_available as contacts_available, ContactInfo
 
 app = FastAPI(
     title="iMessage Gateway",
@@ -146,6 +147,19 @@ def index():
 
 
 # Response models
+class ContactResponse(BaseModel):
+    """Contact information response."""
+
+    handle: str
+    name: str | None = None
+    given_name: str | None = None
+    family_name: str | None = None
+    nickname: str | None = None
+    initials: str | None = None
+    has_image: bool = False
+    image_url: str | None = None  # URL to fetch avatar if available
+
+
 class ChatResponse(BaseModel):
     """Chat/conversation response."""
 
@@ -155,6 +169,7 @@ class ChatResponse(BaseModel):
     identifier: str | None
     last_message_time: str | None  # ISO format
     participants: list[str] | None = None  # For group chats
+    contact: ContactResponse | None = None  # For 1:1 chats
 
 
 class AttachmentResponse(BaseModel):
@@ -183,6 +198,7 @@ class MessageResponse(BaseModel):
     tapback_type: str | None = None  # Reaction type: love, like, dislike, laugh, emphasize, question
     associated_guid: str | None = None  # GUID of message this reacts to
     attachments: list[AttachmentResponse] = []
+    contact: ContactResponse | None = None  # Resolved contact info for handle
 
 
 # Validation patterns
@@ -224,8 +240,36 @@ class SendResponse(BaseModel):
     error: str | None = None
 
 
+def _contact_to_response(contact: ContactInfo) -> ContactResponse:
+    """Convert ContactInfo dataclass to response model."""
+    return ContactResponse(
+        handle=contact.handle,
+        name=contact.name,
+        given_name=contact.given_name,
+        family_name=contact.family_name,
+        nickname=contact.nickname,
+        initials=contact.initials,
+        has_image=contact.has_image,
+        image_url=f"/contacts/{contact.handle}/image" if contact.has_image else None,
+    )
+
+
+def _resolve_handle(handle: str | None) -> ContactResponse | None:
+    """Resolve a handle to contact info, if available."""
+    if not handle or not contacts_available():
+        return None
+    contact = resolve_contact(handle)
+    # Only return if we found a name (otherwise just the handle echoed back)
+    if contact.name:
+        return _contact_to_response(contact)
+    return None
+
+
 def _chat_to_response(chat: Chat) -> ChatResponse:
     """Convert Chat dataclass to response model."""
+    # Resolve contact for 1:1 chats (identifier is the phone/email)
+    contact = _resolve_handle(chat.identifier)
+
     return ChatResponse(
         rowid=chat.rowid,
         guid=chat.guid,
@@ -233,6 +277,7 @@ def _chat_to_response(chat: Chat) -> ChatResponse:
         identifier=chat.identifier,
         last_message_time=chat.last_message_time.isoformat() if chat.last_message_time else None,
         participants=chat.participants,
+        contact=contact,
     )
 
 
@@ -264,6 +309,11 @@ def _attachment_to_response(att: Attachment) -> AttachmentResponse:
 
 def _message_to_response(msg: Message) -> MessageResponse:
     """Convert Message dataclass to response model."""
+    # Resolve contact for the sender (only for received messages)
+    contact = None
+    if not msg.is_from_me:
+        contact = _resolve_handle(msg.handle_id)
+
     return MessageResponse(
         rowid=msg.rowid,
         guid=msg.guid,
@@ -275,6 +325,7 @@ def _message_to_response(msg: Message) -> MessageResponse:
         tapback_type=msg.tapback_type,
         associated_guid=msg.associated_guid,
         attachments=[_attachment_to_response(a) for a in msg.attachments],
+        contact=contact,
     )
 
 
@@ -773,7 +824,46 @@ def health_check() -> dict:
         "database_accessible": db_ok,
         "ffmpeg_available": FFMPEG_AVAILABLE,
         "ffprobe_available": FFPROBE_AVAILABLE,
+        "contacts_available": contacts_available(),
     }
+
+
+@app.get("/contacts/{handle}", response_model=ContactResponse)
+def get_contact(handle: str):
+    """
+    Look up contact information for a phone number or email.
+
+    Returns contact name, initials, and whether they have a photo.
+    """
+    if not contacts_available():
+        raise HTTPException(status_code=503, detail="Contact lookup not available")
+
+    contact = resolve_contact(handle)
+    return _contact_to_response(contact)
+
+
+@app.get("/contacts/{handle}/image")
+def get_contact_image(handle: str):
+    """
+    Get the contact photo for a phone number or email.
+
+    Returns the image as JPEG or the original format from Contacts.
+    """
+    if not contacts_available():
+        raise HTTPException(status_code=503, detail="Contact lookup not available")
+
+    contact = resolve_contact(handle)
+    if not contact.has_image or not contact.image_base64:
+        raise HTTPException(status_code=404, detail="Contact has no image")
+
+    import base64
+    image_data = base64.b64decode(contact.image_base64)
+
+    return StreamingResponse(
+        io.BytesIO(image_data),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=3600"},  # 1h cache
+    )
 
 
 # Configuration endpoints
