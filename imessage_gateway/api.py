@@ -1,5 +1,6 @@
 """FastAPI server for iMessage Gateway."""
 
+import io
 import re
 import time
 from collections import deque
@@ -7,8 +8,13 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
+from PIL import Image
+import pillow_heif
+
+# Register HEIF/HEIC support with Pillow
+pillow_heif.register_heif_opener()
 
 
 # Rate limiting for send endpoint
@@ -369,14 +375,36 @@ UTI_TO_MIME = {
 }
 
 
+def _is_heic(mime_type: str | None, uti: str | None, filename: str | None) -> bool:
+    """Check if file is HEIC format."""
+    if mime_type and "heic" in mime_type.lower():
+        return True
+    if uti and "heic" in uti.lower():
+        return True
+    if filename and filename.lower().endswith((".heic", ".heif")):
+        return True
+    return False
+
+
+def _convert_heic_to_webp(file_path: Path) -> io.BytesIO:
+    """Convert HEIC image to WebP format in memory."""
+    with Image.open(file_path) as img:
+        # Convert to RGB if necessary (HEIC might have alpha)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+
+        output = io.BytesIO()
+        img.save(output, format="WEBP", quality=85)
+        output.seek(0)
+        return output
+
+
 @app.get("/attachments/{attachment_id}")
 def get_attachment_file(attachment_id: int):
     """
     Serve an attachment file.
 
-    Returns the raw file with appropriate Content-Type header.
-    For HEIC images, consider converting client-side or using
-    a thumbnail endpoint for web display.
+    HEIC images are automatically converted to WebP for browser compatibility.
     """
     attachment = get_attachment(attachment_id)
     if attachment is None:
@@ -395,6 +423,21 @@ def get_attachment_file(attachment_id: int):
         mime_type = UTI_TO_MIME.get(attachment.uti)
     if mime_type is None:
         mime_type = "application/octet-stream"
+
+    # Convert HEIC to WebP for browser compatibility
+    if _is_heic(mime_type, attachment.uti, attachment.filename):
+        try:
+            webp_data = _convert_heic_to_webp(file_path)
+            return StreamingResponse(
+                webp_data,
+                media_type="image/webp",
+                headers={
+                    "Content-Disposition": f'inline; filename="{file_path.stem}.webp"'
+                },
+            )
+        except Exception as e:
+            # Fall back to serving original if conversion fails
+            pass
 
     return FileResponse(
         path=file_path,

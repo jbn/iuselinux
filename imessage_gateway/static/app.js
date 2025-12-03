@@ -179,6 +179,13 @@ function isVideoMimeType(mimeType) {
     return mimeType.startsWith('video/');
 }
 
+function isBrowserPlayableVideo(mimeType) {
+    // Browsers generally support mp4/webm, but not quicktime/mov
+    if (!mimeType) return false;
+    const playable = ['video/mp4', 'video/webm', 'video/ogg'];
+    return playable.includes(mimeType.toLowerCase());
+}
+
 function renderAttachments(attachments) {
     if (!attachments || attachments.length === 0) return '';
 
@@ -194,14 +201,29 @@ function renderAttachments(attachments) {
                 </div>
             `;
         } else if (isVideoMimeType(att.mime_type)) {
-            return `
-                <div class="attachment attachment-video">
-                    <video controls preload="metadata">
-                        <source src="${att.url}" type="${att.mime_type}">
-                        <a href="${att.url}">Download video</a>
-                    </video>
-                </div>
-            `;
+            if (isBrowserPlayableVideo(att.mime_type)) {
+                return `
+                    <div class="attachment attachment-video">
+                        <video controls preload="metadata">
+                            <source src="${att.url}" type="${att.mime_type}">
+                            <a href="${att.url}">Download video</a>
+                        </video>
+                    </div>
+                `;
+            } else {
+                // MOV/QuickTime - show as downloadable video file
+                const sizeKb = Math.round(att.total_bytes / 1024);
+                const sizeStr = sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb} KB`;
+                return `
+                    <div class="attachment attachment-file attachment-video-file">
+                        <a href="${att.url}" download="${escapeHtml(att.filename || 'video')}">
+                            <span class="file-icon">🎬</span>
+                            <span class="file-name">${escapeHtml(att.filename || 'Video')}</span>
+                            <span class="file-size">${sizeStr}</span>
+                        </a>
+                    </div>
+                `;
+            }
         } else {
             // Generic file attachment
             const sizeKb = Math.round(att.total_bytes / 1024);
