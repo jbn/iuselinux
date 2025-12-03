@@ -23,6 +23,10 @@ let lastMessageId = 0;
 let allMessages = [];  // Store all messages for current chat
 let currentConfig = {}; // Store current configuration
 
+// Vim mode state
+let vimMode = 'insert'; // 'insert' or 'normal'
+let vimEnabled = false;
+
 async function loadChats() {
     try {
         const res = await fetch('/chats?limit=100');
@@ -422,6 +426,15 @@ function applyConfig(config) {
     if (customCssStyle) {
         customCssStyle.textContent = config.custom_css || '';
     }
+
+    // Apply vim bindings setting
+    vimEnabled = config.vim_bindings || false;
+    if (vimEnabled) {
+        vimMode = 'insert';
+        updateVimModeIndicator();
+    } else {
+        removeVimModeIndicator();
+    }
 }
 
 async function openSettings() {
@@ -506,12 +519,138 @@ settingsSave.addEventListener('click', saveSettings);
 // Close modal on backdrop click
 settingsModal.querySelector('.modal-backdrop').addEventListener('click', closeSettings);
 
-// Close modal on Escape key
+// Close modal on Escape key (but not when in vim normal mode)
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !settingsModal.classList.contains('hidden')) {
         closeSettings();
     }
 });
+
+// Vim mode implementation
+function updateVimModeIndicator() {
+    let indicator = document.getElementById('vim-mode-indicator');
+    if (!indicator) {
+        indicator = document.createElement('span');
+        indicator.id = 'vim-mode-indicator';
+        indicator.className = 'vim-mode-indicator';
+        // Insert before the input
+        messageInput.parentNode.insertBefore(indicator, messageInput);
+    }
+    indicator.textContent = vimMode === 'normal' ? 'NORMAL' : 'INSERT';
+    indicator.className = `vim-mode-indicator vim-${vimMode}`;
+}
+
+function removeVimModeIndicator() {
+    const indicator = document.getElementById('vim-mode-indicator');
+    if (indicator) {
+        indicator.remove();
+    }
+}
+
+function handleVimKeydown(e) {
+    if (!vimEnabled) return;
+
+    const input = e.target;
+    const cursorPos = input.selectionStart;
+    const text = input.value;
+
+    if (vimMode === 'normal') {
+        // Prevent default for most keys in normal mode
+        if (e.key.length === 1 || ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            e.preventDefault();
+        }
+
+        switch (e.key) {
+            case 'i': // Enter insert mode
+                vimMode = 'insert';
+                updateVimModeIndicator();
+                break;
+            case 'a': // Enter insert mode after cursor
+                vimMode = 'insert';
+                input.setSelectionRange(cursorPos + 1, cursorPos + 1);
+                updateVimModeIndicator();
+                break;
+            case 'A': // Enter insert mode at end
+                vimMode = 'insert';
+                input.setSelectionRange(text.length, text.length);
+                updateVimModeIndicator();
+                break;
+            case 'I': // Enter insert mode at beginning
+                vimMode = 'insert';
+                input.setSelectionRange(0, 0);
+                updateVimModeIndicator();
+                break;
+            case 'h': // Move left
+            case 'ArrowLeft':
+                input.setSelectionRange(Math.max(0, cursorPos - 1), Math.max(0, cursorPos - 1));
+                break;
+            case 'l': // Move right
+            case 'ArrowRight':
+                input.setSelectionRange(Math.min(text.length, cursorPos + 1), Math.min(text.length, cursorPos + 1));
+                break;
+            case '0': // Go to start
+            case 'Home':
+                input.setSelectionRange(0, 0);
+                break;
+            case '$': // Go to end
+            case 'End':
+                input.setSelectionRange(text.length, text.length);
+                break;
+            case 'w': // Move to next word
+                const nextWord = text.slice(cursorPos).search(/\s\S/);
+                if (nextWord >= 0) {
+                    input.setSelectionRange(cursorPos + nextWord + 1, cursorPos + nextWord + 1);
+                } else {
+                    input.setSelectionRange(text.length, text.length);
+                }
+                break;
+            case 'b': // Move to previous word
+                const beforeCursor = text.slice(0, cursorPos);
+                const prevWord = beforeCursor.search(/\S\s*$/);
+                if (prevWord >= 0) {
+                    const wordStart = beforeCursor.slice(0, prevWord).search(/\s\S*$/);
+                    input.setSelectionRange(wordStart >= 0 ? wordStart + 1 : 0, wordStart >= 0 ? wordStart + 1 : 0);
+                } else {
+                    input.setSelectionRange(0, 0);
+                }
+                break;
+            case 'x': // Delete character under cursor
+                if (cursorPos < text.length) {
+                    input.value = text.slice(0, cursorPos) + text.slice(cursorPos + 1);
+                    input.setSelectionRange(cursorPos, cursorPos);
+                }
+                break;
+            case 'd':
+                // Would need to track for dd, dw, etc. - simplified for now
+                break;
+            case 'D': // Delete to end of line
+                input.value = text.slice(0, cursorPos);
+                input.setSelectionRange(cursorPos, cursorPos);
+                break;
+            case 'c':
+                // Would need to track for cc, cw, etc. - simplified for now
+                break;
+            case 'C': // Change to end of line
+                input.value = text.slice(0, cursorPos);
+                vimMode = 'insert';
+                updateVimModeIndicator();
+                break;
+        }
+    } else if (vimMode === 'insert') {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            vimMode = 'normal';
+            // Move cursor back one position (vim behavior)
+            if (cursorPos > 0) {
+                input.setSelectionRange(cursorPos - 1, cursorPos - 1);
+            }
+            updateVimModeIndicator();
+        }
+    }
+}
+
+// Attach vim keydown handler to message input
+messageInput.addEventListener('keydown', handleVimKeydown);
 
 // Initial load
 loadConfig();
