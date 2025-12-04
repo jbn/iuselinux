@@ -58,6 +58,8 @@ class Chat:
     identifier: str | None  # For 1:1 chats, the phone/email
     last_message_time: datetime | None = None
     participants: list[str] | None = None  # List of phone/email for group chats
+    last_message_text: str | None = None  # Preview of the last message
+    last_message_is_from_me: bool = False  # Whether the last message was from me
 
 
 def get_attachment(
@@ -287,18 +289,34 @@ def get_chats(limit: int = 100, db_path: Path | None = None) -> list[Chat]:
     with get_connection(db_path) as conn:
         cur = conn.cursor()
 
-        # Get chats with their primary identifier and last message time
+        # Get chats with their primary identifier, last message time, and last message preview
+        # Use a subquery to get the most recent message per chat
         query = """
+        WITH last_messages AS (
+            SELECT
+                cmj.chat_id,
+                m.ROWID as msg_rowid,
+                m.text,
+                m.attributedBody,
+                m.is_from_me,
+                m.date,
+                m.associated_message_type,
+                ROW_NUMBER() OVER (PARTITION BY cmj.chat_id ORDER BY m.date DESC) as rn
+            FROM chat_message_join cmj
+            JOIN message m ON cmj.message_id = m.ROWID
+        )
         SELECT
             chat.ROWID as rowid,
             chat.guid,
             chat.display_name,
             chat.chat_identifier as identifier,
-            MAX(message.date) as last_message_time
+            lm.date as last_message_time,
+            lm.text as last_message_text,
+            lm.attributedBody as last_message_attributed_body,
+            lm.is_from_me as last_message_is_from_me,
+            lm.associated_message_type
         FROM chat
-        LEFT JOIN chat_message_join ON chat.ROWID = chat_message_join.chat_id
-        LEFT JOIN message ON chat_message_join.message_id = message.ROWID
-        GROUP BY chat.ROWID
+        LEFT JOIN last_messages lm ON chat.ROWID = lm.chat_id AND lm.rn = 1
         ORDER BY last_message_time DESC NULLS LAST
         LIMIT ?
         """
@@ -331,6 +349,21 @@ def get_chats(limit: int = 100, db_path: Path | None = None) -> list[Chat]:
         chats = []
         for row in rows:
             participants = participants_map.get(row["rowid"])
+
+            # Extract last message text
+            last_text = row["last_message_text"]
+            if last_text is None:
+                last_text = extract_text_from_attributed_body(row["last_message_attributed_body"])
+
+            # If it's a tapback, show a friendly label instead
+            assoc_type = row["associated_message_type"]
+            if assoc_type and assoc_type in TAPBACK_TYPES:
+                tapback_name = TAPBACK_TYPES[assoc_type]
+                if row["last_message_is_from_me"]:
+                    last_text = f"You {tapback_name}d a message"
+                else:
+                    last_text = f"{tapback_name.capitalize()}d a message"
+
             chats.append(
                 Chat(
                     rowid=row["rowid"],
@@ -339,6 +372,8 @@ def get_chats(limit: int = 100, db_path: Path | None = None) -> list[Chat]:
                     identifier=row["identifier"],
                     last_message_time=mac_absolute_to_datetime(row["last_message_time"]),
                     participants=participants,
+                    last_message_text=last_text,
+                    last_message_is_from_me=bool(row["last_message_is_from_me"]),
                 )
             )
 

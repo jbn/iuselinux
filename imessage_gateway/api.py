@@ -186,6 +186,8 @@ class ChatResponse(BaseModel):
     display_name: str | None
     identifier: str | None
     last_message_time: str | None  # ISO format
+    last_message_text: str | None = None  # Preview of the last message
+    last_message_is_from_me: bool = False  # Whether the last message was from me
     participants: list[str] | None = None  # For group chats (raw handles, for backwards compat)
     participant_contacts: list[ParticipantResponse] | None = None  # For group chats with resolved contacts
     contact: ContactResponse | None = None  # For 1:1 chats
@@ -309,6 +311,8 @@ def _chat_to_response(chat: Chat) -> ChatResponse:
         display_name=chat.display_name,
         identifier=chat.identifier,
         last_message_time=chat.last_message_time.isoformat() if chat.last_message_time else None,
+        last_message_text=chat.last_message_text,
+        last_message_is_from_me=chat.last_message_is_from_me,
         participants=chat.participants,
         participant_contacts=participant_contacts,
         contact=contact,
@@ -941,6 +945,7 @@ class ConfigResponse(BaseModel):
     contact_cache_ttl: int = 86400  # seconds
     log_level: str = "WARNING"
     notifications_enabled: bool = True
+    theme: str = "auto"  # "auto", "light", or "dark"
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -953,6 +958,7 @@ class ConfigUpdateRequest(BaseModel):
     contact_cache_ttl: int | None = None
     log_level: str | None = None
     notifications_enabled: bool | None = None
+    theme: str | None = None
 
 
 @app.get("/config", response_model=ConfigResponse)

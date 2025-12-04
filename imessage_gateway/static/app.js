@@ -15,6 +15,7 @@ const settingPreventSleep = document.getElementById('setting-prevent-sleep');
 const settingVimBindings = document.getElementById('setting-vim-bindings');
 const settingCustomCss = document.getElementById('setting-custom-css');
 const settingApiToken = document.getElementById('setting-api-token');
+const settingTheme = document.getElementById('setting-theme');
 const customCssStyle = document.getElementById('custom-css');
 
 let currentChatId = null;
@@ -37,6 +38,35 @@ const SCROLL_THRESHOLD = 50;    // Pixels from bottom to consider "at bottom"
 
 // Notification state
 let notificationsEnabled = true;  // Default on
+
+// Theme state
+let currentTheme = 'auto';  // 'auto', 'light', or 'dark'
+
+function applyTheme(theme) {
+    currentTheme = theme;
+
+    if (theme === 'auto') {
+        // Remove data-theme to let CSS use :root (which doesn't have data-theme)
+        // but we need to check system preference
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+    } else {
+        document.documentElement.setAttribute('data-theme', theme);
+    }
+}
+
+// Listen for system theme changes when in auto mode
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+    if (currentTheme === 'auto') {
+        document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+    }
+});
+
+// Apply theme early (before config loads) using localStorage fallback
+(function() {
+    const savedTheme = localStorage.getItem('theme') || 'auto';
+    applyTheme(savedTheme);
+})();
 
 function isScrolledToBottom() {
     return messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < SCROLL_THRESHOLD;
@@ -231,7 +261,7 @@ function getChatDisplayName(chat) {
             }
             return p.handle;
         });
-        return formatted.join(', ');
+        return formatted.join(' & ');
     }
 
     // Fallback to raw participants (backwards compatibility)
@@ -242,26 +272,126 @@ function getChatDisplayName(chat) {
             }
             return p;
         });
-        return formatted.join(', ');
+        return formatted.join(' & ');
     }
 
     return 'Unknown';
 }
 
-function getChatInitials(chat) {
-    if (chat.contact && chat.contact.initials) {
-        return chat.contact.initials;
+// Format timestamp for sidebar (iMessage style)
+function formatSidebarTime(isoString) {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    // Today: show time
+    if (date.toDateString() === now.toDateString()) {
+        return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     }
-    // Generate from identifier
-    return getContactInitials(null, chat.identifier);
+
+    // Yesterday
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) {
+        return 'Yesterday';
+    }
+
+    // Within the last week: show day name
+    if (diffDays < 7) {
+        return date.toLocaleDateString([], { weekday: 'long' });
+    }
+
+    // Older: show date
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+// Get first letter of a name for initials (or empty if no valid letter)
+function getFirstLetter(name) {
+    if (!name) return '';
+    // Find the first letter character
+    const match = name.match(/[a-zA-Z]/);
+    return match ? match[0].toUpperCase() : '';
+}
+
+// Person icon SVG for unknown contacts
+const PERSON_ICON_SVG = `<svg class="chat-avatar-icon" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+</svg>`;
+
+const PERSON_ICON_SMALL_SVG = `<svg class="group-avatar-icon" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+</svg>`;
+
+// Check if chat is a group chat
+function isGroupChat(chat) {
+    return chat.participants && chat.participants.length > 1;
+}
+
+function getChatInitials(chat) {
+    // For contacts with a name, use first letter
+    if (chat.contact && chat.contact.name) {
+        return getFirstLetter(chat.contact.name);
+    }
+    // For display name
+    if (chat.display_name) {
+        const letter = getFirstLetter(chat.display_name);
+        if (letter) return letter;
+    }
+    // No valid letter found
+    return '';
+}
+
+// Get avatar content for a single participant (used in group avatars)
+function getParticipantAvatarHtml(participant, small = false) {
+    const imgClass = small ? 'group-avatar-img' : 'chat-avatar-img';
+    const initialsClass = small ? 'group-avatar-initials' : 'chat-avatar-initials';
+    const iconSvg = small ? PERSON_ICON_SMALL_SVG : PERSON_ICON_SVG;
+
+    // Has contact photo
+    if (participant.contact && participant.contact.has_image && participant.contact.image_url) {
+        return `<img src="${participant.contact.image_url}" alt="" class="${imgClass}">`;
+    }
+
+    // Has contact name - use first letter
+    if (participant.contact && participant.contact.name) {
+        const letter = getFirstLetter(participant.contact.name);
+        if (letter) {
+            return `<span class="${initialsClass}">${escapeHtml(letter)}</span>`;
+        }
+    }
+
+    // Unknown - show person icon
+    return iconSvg;
 }
 
 function getChatAvatarHtml(chat) {
-    if (chat.contact && chat.contact.has_image && chat.contact.image_url) {
-        return `<img src="${chat.contact.image_url}" alt="" class="chat-avatar-img">`;
+    // Group chat - show overlapping circles
+    if (isGroupChat(chat) && chat.participant_contacts && chat.participant_contacts.length >= 2) {
+        const p1 = chat.participant_contacts[0];
+        const p2 = chat.participant_contacts[1];
+        return `
+            <div class="chat-avatar-group">
+                <div class="group-avatar">${getParticipantAvatarHtml(p1, true)}</div>
+                <div class="group-avatar">${getParticipantAvatarHtml(p2, true)}</div>
+            </div>
+        `;
     }
+
+    // 1:1 chat with contact photo
+    if (chat.contact && chat.contact.has_image && chat.contact.image_url) {
+        return `<div class="chat-avatar"><img src="${chat.contact.image_url}" alt="" class="chat-avatar-img"></div>`;
+    }
+
+    // 1:1 chat with contact name - use first letter
     const initials = getChatInitials(chat);
-    return `<span class="chat-avatar-initials">${escapeHtml(initials)}</span>`;
+    if (initials) {
+        return `<div class="chat-avatar"><span class="chat-avatar-initials">${escapeHtml(initials)}</span></div>`;
+    }
+
+    // Unknown - show person icon
+    return `<div class="chat-avatar">${PERSON_ICON_SVG}</div>`;
 }
 
 function renderChats(chats) {
@@ -272,23 +402,29 @@ function renderChats(chats) {
     chatList.innerHTML = chats.map(chat => {
         const displayName = getChatDisplayName(chat);
         const avatarHtml = getChatAvatarHtml(chat);
-        // Show identifier as subtitle only if different from display name
-        const subtitle = (chat.contact && chat.contact.name && chat.identifier)
-            ? chat.identifier
-            : '';
+        const timeStr = formatSidebarTime(chat.last_message_time);
+
+        // Format message preview
+        let preview = chat.last_message_text || '';
+        if (chat.last_message_is_from_me && preview) {
+            preview = 'You: ' + preview;
+        }
 
         // For sending: use identifier (phone/email) for 1:1 chats, guid for group chats
         // Group chats have identifiers starting with "chat" (e.g., "chat123456")
-        const isGroupChat = chat.identifier && chat.identifier.startsWith('chat');
-        const sendTarget = isGroupChat ? chat.guid : (chat.identifier || '');
+        const isGroup = chat.identifier && chat.identifier.startsWith('chat');
+        const sendTarget = isGroup ? chat.guid : (chat.identifier || '');
         const isActive = chat.rowid === currentChatId;
 
         return `
             <div class="chat-item${isActive ? ' active' : ''}" data-id="${chat.rowid}" data-identifier="${chat.identifier || ''}" data-send-target="${sendTarget}">
-                <div class="chat-avatar">${avatarHtml}</div>
+                ${avatarHtml}
                 <div class="chat-info">
-                    <div class="chat-name">${escapeHtml(displayName)}</div>
-                    ${subtitle ? `<div class="chat-identifier">${escapeHtml(subtitle)}</div>` : ''}
+                    <div class="chat-info-top">
+                        <div class="chat-name">${escapeHtml(displayName)}</div>
+                        <span class="chat-time">${escapeHtml(timeStr)}</span>
+                    </div>
+                    <div class="chat-preview">${escapeHtml(preview)}</div>
                 </div>
             </div>
         `;
@@ -451,6 +587,18 @@ function renderMessages(messages, forceScroll = false) {
     // Messages come newest first, reverse for display
     const sorted = [...messages].sort((a, b) => a.rowid - b.rowid);
 
+    // Filter out tapbacks for participant counting
+    const realMessages = sorted.filter(m => !m.tapback_type);
+
+    // Count unique senders (excluding "from me") to determine if this is a group chat
+    const uniqueSenders = new Set();
+    for (const msg of realMessages) {
+        if (!msg.is_from_me && msg.handle_id) {
+            uniqueSenders.add(msg.handle_id);
+        }
+    }
+    const isGroupChat = uniqueSenders.size > 1;
+
     let html = '';
 
     // Show "load more" indicator at top if there are more messages
@@ -459,6 +607,7 @@ function renderMessages(messages, forceScroll = false) {
     }
 
     let lastTimestamp = null;
+    let lastSenderId = null;  // Track the last sender to show info only on change
 
     for (const msg of sorted) {
         // Skip tapback messages - they're rendered as annotations on their target
@@ -471,13 +620,23 @@ function renderMessages(messages, forceScroll = false) {
             const msgTime = new Date(msg.timestamp);
             if (!lastTimestamp || (msgTime - lastTimestamp) > TIMESTAMP_GAP_MINUTES * 60 * 1000) {
                 html += `<div class="timestamp-separator">${formatTimeSeparator(msgTime)}</div>`;
+                // Reset sender after timestamp separator so we show the sender again
+                lastSenderId = null;
             }
             lastTimestamp = msgTime;
         }
 
+        // Determine if we should show sender info:
+        // - Only for received messages (not from me)
+        // - Only in group chats (more than one other participant)
+        // - Only when the sender changes from the previous message
+        const currentSenderId = msg.is_from_me ? '__me__' : (msg.handle_id || '__unknown__');
+        const showSender = isGroupChat && !msg.is_from_me && currentSenderId !== lastSenderId;
+        lastSenderId = currentSenderId;
+
         // Get tapbacks for this message
         const tapbacks = tapbackMap.get(msg.guid) || [];
-        html += messageHtml(msg, tapbacks);
+        html += messageHtml(msg, tapbacks, showSender);
     }
 
     messagesDiv.innerHTML = html;
@@ -703,12 +862,12 @@ function renderTapbacks(tapbacks) {
     return `<div class="tapback-annotations">${items.join('')}</div>`;
 }
 
-function messageHtml(msg, tapbacks = []) {
+function messageHtml(msg, tapbacks = [], showSender = false) {
     const cls = msg.is_from_me ? 'from-me' : 'from-them';
 
     const text = msg.text || '';
     const attachmentsHtml = renderAttachments(msg.attachments);
-    const senderHtml = getMessageSenderHtml(msg);
+    const senderHtml = showSender ? getMessageSenderHtml(msg) : '';
     const tapbacksHtml = renderTapbacks(tapbacks);
 
     // If we only have attachments and no text, don't show empty text bubble
@@ -880,6 +1039,11 @@ function applyConfig(config) {
 
     // Apply notification setting
     notificationsEnabled = config.notifications_enabled !== false;  // Default true
+
+    // Apply theme setting
+    const theme = config.theme || 'auto';
+    applyTheme(theme);
+    localStorage.setItem('theme', theme);  // Cache for early loading
 }
 
 async function openSettings() {
@@ -893,6 +1057,11 @@ async function openSettings() {
     const settingNotifications = document.getElementById('setting-notifications');
     if (settingNotifications) {
         settingNotifications.checked = currentConfig.notifications_enabled !== false;
+    }
+
+    // Populate theme setting
+    if (settingTheme) {
+        settingTheme.value = currentConfig.theme || 'auto';
     }
 
     settingsModal.classList.remove('hidden');
@@ -959,7 +1128,8 @@ async function saveSettings() {
         vim_bindings: settingVimBindings.checked,
         custom_css: settingCustomCss.value,
         api_token: settingApiToken.value,
-        notifications_enabled: settingNotifications ? settingNotifications.checked : true
+        notifications_enabled: settingNotifications ? settingNotifications.checked : true,
+        theme: settingTheme ? settingTheme.value : 'auto'
     };
 
     try {
@@ -1135,6 +1305,227 @@ if ('Notification' in window && Notification.permission === 'default') {
         document.removeEventListener('click', requestNotificationPermission);
     }, { once: true });
 }
+
+// Compose Modal functionality
+const composeModal = document.getElementById('compose-modal');
+const composeRecipient = document.getElementById('compose-recipient');
+const composeMessage = document.getElementById('compose-message');
+const composeSend = document.getElementById('compose-send');
+const composeCancel = document.getElementById('compose-cancel');
+const composeSuggestions = document.getElementById('compose-suggestions');
+const newMessageBtn = document.getElementById('new-message-btn');
+
+let selectedRecipient = null;
+let selectedSuggestionIndex = -1;
+let currentSuggestions = [];
+
+function openComposeModal() {
+    composeModal.classList.remove('hidden');
+    composeRecipient.value = '';
+    composeMessage.value = '';
+    composeSend.disabled = true;
+    selectedRecipient = null;
+    selectedSuggestionIndex = -1;
+    currentSuggestions = [];
+    composeSuggestions.classList.add('hidden');
+    setTimeout(() => composeRecipient.focus(), 100);
+}
+
+function closeComposeModal() {
+    composeModal.classList.add('hidden');
+}
+
+function updateComposeSendButton() {
+    const hasRecipient = selectedRecipient || composeRecipient.value.trim();
+    const hasMessage = composeMessage.value.trim();
+    composeSend.disabled = !hasRecipient || !hasMessage;
+}
+
+// Search for contacts/chats matching the query
+async function searchRecipients(query) {
+    if (!query || query.length < 2) {
+        composeSuggestions.classList.add('hidden');
+        currentSuggestions = [];
+        return;
+    }
+
+    const queryLower = query.toLowerCase();
+
+    // Search through existing chats
+    const matches = allChats.filter(chat => {
+        // Match by display name
+        const displayName = getChatDisplayName(chat).toLowerCase();
+        if (displayName.includes(queryLower)) return true;
+
+        // Match by identifier
+        if (chat.identifier && chat.identifier.toLowerCase().includes(queryLower)) return true;
+
+        // Match by participant names
+        if (chat.participant_contacts) {
+            for (const p of chat.participant_contacts) {
+                if (p.contact && p.contact.name && p.contact.name.toLowerCase().includes(queryLower)) {
+                    return true;
+                }
+                if (p.handle && p.handle.toLowerCase().includes(queryLower)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }).slice(0, 8);
+
+    currentSuggestions = matches;
+
+    if (matches.length === 0) {
+        composeSuggestions.classList.add('hidden');
+        return;
+    }
+
+    renderSuggestions(matches);
+    composeSuggestions.classList.remove('hidden');
+}
+
+function renderSuggestions(matches) {
+    composeSuggestions.innerHTML = matches.map((chat, index) => {
+        const displayName = getChatDisplayName(chat);
+        const detail = chat.identifier || '';
+        const isGroup = chat.identifier && chat.identifier.startsWith('chat');
+        const sendTarget = isGroup ? chat.guid : (chat.identifier || '');
+
+        // Get avatar HTML (simplified for suggestions)
+        let avatarHtml;
+        if (chat.contact && chat.contact.has_image && chat.contact.image_url) {
+            avatarHtml = `<img src="${chat.contact.image_url}" alt="" class="suggestion-avatar-img">`;
+        } else {
+            const letter = getChatInitials(chat);
+            if (letter) {
+                avatarHtml = `<span class="suggestion-avatar-initials">${escapeHtml(letter)}</span>`;
+            } else {
+                avatarHtml = `<svg class="suggestion-avatar-initials" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                </svg>`;
+            }
+        }
+
+        const selectedClass = index === selectedSuggestionIndex ? ' selected' : '';
+
+        return `
+            <div class="compose-suggestion${selectedClass}" data-index="${index}" data-send-target="${sendTarget}" data-display-name="${escapeHtml(displayName)}" data-chat-id="${chat.rowid}">
+                <div class="suggestion-avatar">${avatarHtml}</div>
+                <div class="suggestion-info">
+                    <div class="suggestion-name">${escapeHtml(displayName)}</div>
+                    <div class="suggestion-detail">${escapeHtml(detail)}</div>
+                </div>
+                <span class="suggestion-arrow">›</span>
+            </div>
+        `;
+    }).join('');
+
+    // Add click handlers
+    composeSuggestions.querySelectorAll('.compose-suggestion').forEach(el => {
+        el.addEventListener('click', () => selectSuggestion(el));
+    });
+}
+
+function selectSuggestion(el) {
+    const sendTarget = el.dataset.sendTarget;
+    const displayName = el.dataset.displayName;
+    const chatId = parseInt(el.dataset.chatId, 10);
+
+    selectedRecipient = sendTarget;
+    composeRecipient.value = displayName;
+    composeSuggestions.classList.add('hidden');
+    updateComposeSendButton();
+
+    // If this is an existing chat, navigate to it instead
+    if (chatId) {
+        closeComposeModal();
+        const chatItem = chatList.querySelector(`.chat-item[data-id="${chatId}"]`);
+        if (chatItem) {
+            selectChat(chatItem);
+        }
+    } else {
+        composeMessage.focus();
+    }
+}
+
+async function sendComposeMessage() {
+    const recipient = selectedRecipient || composeRecipient.value.trim();
+    const message = composeMessage.value.trim();
+
+    if (!recipient || !message) return;
+
+    composeSend.disabled = true;
+
+    try {
+        const res = await fetch('/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipient, message })
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            const errorMsg = typeof err.detail === 'string' ? err.detail : (err.detail?.msg || err.message || JSON.stringify(err.detail) || 'Unknown error');
+            alert('Failed to send: ' + errorMsg);
+            composeSend.disabled = false;
+            return;
+        }
+
+        // Success - close modal and refresh chats
+        closeComposeModal();
+        await loadChats();
+
+    } catch (err) {
+        console.error('Send failed:', err);
+        alert('Failed to send message');
+        composeSend.disabled = false;
+    }
+}
+
+// Event listeners for compose modal
+newMessageBtn.addEventListener('click', openComposeModal);
+composeCancel.addEventListener('click', closeComposeModal);
+composeModal.querySelector('.modal-backdrop').addEventListener('click', closeComposeModal);
+composeSend.addEventListener('click', sendComposeMessage);
+
+composeRecipient.addEventListener('input', (e) => {
+    selectedRecipient = null;
+    selectedSuggestionIndex = -1;
+    searchRecipients(e.target.value);
+    updateComposeSendButton();
+});
+
+composeMessage.addEventListener('input', updateComposeSendButton);
+
+// Keyboard navigation for suggestions
+composeRecipient.addEventListener('keydown', (e) => {
+    if (currentSuggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        selectedSuggestionIndex = Math.min(selectedSuggestionIndex + 1, currentSuggestions.length - 1);
+        renderSuggestions(currentSuggestions);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        selectedSuggestionIndex = Math.max(selectedSuggestionIndex - 1, -1);
+        renderSuggestions(currentSuggestions);
+    } else if (e.key === 'Enter' && selectedSuggestionIndex >= 0) {
+        e.preventDefault();
+        const el = composeSuggestions.querySelector(`[data-index="${selectedSuggestionIndex}"]`);
+        if (el) selectSuggestion(el);
+    } else if (e.key === 'Escape') {
+        composeSuggestions.classList.add('hidden');
+    }
+});
+
+// Close compose modal on Escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !composeModal.classList.contains('hidden')) {
+        closeComposeModal();
+    }
+});
 
 // Initial load
 loadConfig();

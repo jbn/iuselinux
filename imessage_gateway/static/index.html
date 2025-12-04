@@ -11,8 +11,19 @@
     <div class="container">
         <aside class="sidebar">
             <div class="sidebar-header">
+                <button id="settings-btn" class="icon-btn" title="Settings">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <circle cx="10" cy="10" r="2.5"/>
+                        <path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M3.4 3.4l1.4 1.4M15.2 15.2l1.4 1.4M3.4 16.6l1.4-1.4M15.2 4.8l1.4-1.4"/>
+                    </svg>
+                </button>
                 <h2>Chats</h2>
-                <button id="settings-btn" class="settings-btn" title="Settings">&#9881;</button>
+                <button id="new-message-btn" class="icon-btn" title="New Message">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <rect x="2" y="2" width="16" height="16" rx="3"/>
+                        <path d="M13 4l3 3-8 8H5v-3l8-8z"/>
+                    </svg>
+                </button>
             </div>
             <div id="chat-list" class="chat-list"></div>
         </aside>
@@ -59,6 +70,15 @@
                     <p class="setting-description">Show desktop notifications for new messages when the tab is not active</p>
                 </div>
                 <div class="setting-group">
+                    <label class="setting-label-block">Theme</label>
+                    <p class="setting-description">Choose your preferred color scheme</p>
+                    <select id="setting-theme">
+                        <option value="auto">Auto (System)</option>
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                    </select>
+                </div>
+                <div class="setting-group">
                     <label class="setting-label-block">Custom CSS</label>
                     <p class="setting-description">Add custom styles to customize the appearance</p>
                     <textarea id="setting-custom-css" rows="6" placeholder="/* Add your custom CSS here */"></textarea>
@@ -90,6 +110,29 @@
             <div class="modal-footer">
                 <button id="settings-save" class="btn-primary">Save</button>
                 <button id="settings-cancel" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Compose Modal -->
+    <div id="compose-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content compose-modal-content">
+            <div class="compose-header">
+                <button id="compose-cancel" class="compose-cancel-btn">Cancel</button>
+                <h2>New Message</h2>
+                <div class="compose-spacer"></div>
+            </div>
+            <div class="compose-to-row">
+                <span class="compose-to-label">To:</span>
+                <input type="text" id="compose-recipient" class="compose-recipient-input" placeholder="Phone, email, or name" autocomplete="off">
+            </div>
+            <div id="compose-suggestions" class="compose-suggestions hidden"></div>
+            <div class="compose-body">
+                <textarea id="compose-message" class="compose-message-input" placeholder="Type a message..."></textarea>
+            </div>
+            <div class="compose-footer">
+                <button id="compose-send" class="btn-primary" disabled>Send</button>
             </div>
         </div>
     </div>
