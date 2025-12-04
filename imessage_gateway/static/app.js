@@ -24,6 +24,50 @@ let lastMessageId = 0;
 let allMessages = [];  // Store all messages for current chat
 let currentConfig = {}; // Store current configuration
 
+// Auto-scroll state
+let userHasScrolledUp = false;  // Track if user manually scrolled up
+const SCROLL_THRESHOLD = 50;    // Pixels from bottom to consider "at bottom"
+
+function isScrolledToBottom() {
+    return messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < SCROLL_THRESHOLD;
+}
+
+function scrollToBottom() {
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    userHasScrolledUp = false;
+    hideNewMessageIndicator();
+}
+
+function showNewMessageIndicator() {
+    let indicator = document.getElementById('new-message-indicator');
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.id = 'new-message-indicator';
+        indicator.className = 'new-message-indicator';
+        indicator.innerHTML = '↓ New message';
+        indicator.addEventListener('click', scrollToBottom);
+        messagesDiv.parentNode.appendChild(indicator);
+    }
+    indicator.classList.add('visible');
+}
+
+function hideNewMessageIndicator() {
+    const indicator = document.getElementById('new-message-indicator');
+    if (indicator) {
+        indicator.classList.remove('visible');
+    }
+}
+
+// Track user scroll
+messagesDiv.addEventListener('scroll', () => {
+    if (isScrolledToBottom()) {
+        userHasScrolledUp = false;
+        hideNewMessageIndicator();
+    } else {
+        userHasScrolledUp = true;
+    }
+});
+
 // Vim mode state
 let vimMode = 'insert'; // 'insert' or 'normal'
 let vimEnabled = false;
@@ -106,6 +150,14 @@ async function loadChats() {
         const res = await fetch('/chats?limit=100');
         const chats = await res.json();
         renderChats(chats);
+
+        // Auto-select the first (most recent) chat if none is selected
+        if (!currentChatId && chats.length > 0) {
+            const firstChatItem = chatList.querySelector('.chat-item');
+            if (firstChatItem) {
+                selectChat(firstChatItem);
+            }
+        }
     } catch (err) {
         console.error('Failed to load chats:', err);
         chatList.innerHTML = '<div class="empty-state">Failed to load chats</div>';
@@ -174,8 +226,13 @@ function renderChats(chats) {
             ? chat.identifier
             : '';
 
+        // For sending: use identifier (phone/email) for 1:1 chats, guid for group chats
+        // Group chats have identifiers starting with "chat" (e.g., "chat123456")
+        const isGroupChat = chat.identifier && chat.identifier.startsWith('chat');
+        const sendTarget = isGroupChat ? chat.guid : (chat.identifier || '');
+
         return `
-            <div class="chat-item" data-id="${chat.rowid}" data-identifier="${chat.identifier || ''}">
+            <div class="chat-item" data-id="${chat.rowid}" data-identifier="${chat.identifier || ''}" data-send-target="${sendTarget}">
                 <div class="chat-avatar">${avatarHtml}</div>
                 <div class="chat-info">
                     <div class="chat-name">${escapeHtml(displayName)}</div>
@@ -195,7 +252,7 @@ function selectChat(item) {
     item.classList.add('active');
 
     currentChatId = parseInt(item.dataset.id, 10);
-    currentRecipient = item.dataset.identifier;
+    currentRecipient = item.dataset.sendTarget;  // Use send-target which has guid for group chats
     const name = item.querySelector('.chat-name').textContent;
     chatTitle.textContent = name;
 
@@ -206,6 +263,10 @@ function selectChat(item) {
     } else {
         messageInput.placeholder = 'Type a message...';
     }
+
+    // Reset scroll state for new chat
+    userHasScrolledUp = false;
+    hideNewMessageIndicator();
 
     lastMessageId = 0;
     allMessages = [];
@@ -220,7 +281,7 @@ async function loadMessages() {
         const res = await fetch(url);
         const messages = await res.json();
         allMessages = messages;
-        renderMessages(allMessages);
+        renderMessages(allMessages, true);  // Force scroll on initial load
         if (messages.length > 0) {
             lastMessageId = Math.max(...messages.map(m => m.rowid));
         }
@@ -233,7 +294,7 @@ async function loadMessages() {
 // Time gap threshold for showing timestamp separator (in minutes)
 const TIMESTAMP_GAP_MINUTES = 60;
 
-function renderMessages(messages) {
+function renderMessages(messages, forceScroll = false) {
     if (messages.length === 0) {
         messagesDiv.innerHTML = '<div class="empty-state">No messages</div>';
         return;
@@ -257,19 +318,31 @@ function renderMessages(messages) {
     }
 
     messagesDiv.innerHTML = html;
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+    // Scroll to bottom if forced (initial load) or if user hasn't scrolled up
+    if (forceScroll || !userHasScrolledUp) {
+        scrollToBottom();
+    }
 }
 
 function appendMessages(newMessages) {
     // Add new messages to our collection, avoiding duplicates
     const existingIds = new Set(allMessages.map(m => m.rowid));
+    let hasNewMessages = false;
     for (const msg of newMessages) {
         if (!existingIds.has(msg.rowid)) {
             allMessages.push(msg);
+            hasNewMessages = true;
         }
     }
+
     // Re-render with all messages sorted
     renderMessages(allMessages);
+
+    // Show indicator if new messages arrived and user is scrolled up
+    if (hasNewMessages && userHasScrolledUp) {
+        showNewMessageIndicator();
+    }
 }
 
 // Tapback emoji mapping

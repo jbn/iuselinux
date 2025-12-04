@@ -189,6 +189,37 @@ class TestSendEndpoint:
         )
         assert response.status_code == 422  # Validation error
 
+    def test_send_accepts_chat_guid(self, client):
+        """Test that full chat GUIDs (for group chats) are accepted."""
+        with patch("imessage_gateway.api.send_imessage") as mock_send:
+            mock_send.return_value = SendResult(success=True)
+            # Test iMessage group chat
+            response = client.post(
+                "/send",
+                json={"recipient": "iMessage;+;chat361112195654916439", "message": "Test message"},
+            )
+            assert response.status_code == 200
+            mock_send.assert_called_once_with("iMessage;+;chat361112195654916439", "Test message")
+
+    def test_send_accepts_sms_chat_guid(self, client):
+        """Test that SMS chat GUIDs are accepted."""
+        with patch("imessage_gateway.api.send_imessage") as mock_send:
+            mock_send.return_value = SendResult(success=True)
+            response = client.post(
+                "/send",
+                json={"recipient": "SMS;+;chat196624768427923118", "message": "Test message"},
+            )
+            assert response.status_code == 200
+            mock_send.assert_called_once_with("SMS;+;chat196624768427923118", "Test message")
+
+    def test_send_rejects_short_chat_id(self, client):
+        """Test that short chat IDs (without service prefix) are rejected."""
+        response = client.post(
+            "/send",
+            json={"recipient": "chat361112195654916439", "message": "Test message"},
+        )
+        assert response.status_code == 422  # Validation error
+
     def test_send_rejects_empty_message(self, client):
         response = client.post(
             "/send",

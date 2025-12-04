@@ -211,3 +211,106 @@ If your Mac is behind a router, forward UDP port 51820 to your Mac's local IP.
 - `POST /send` - Send a message
 - `GET /attachments/{id}` - Get attachment file (images, videos, etc.)
 - `GET /health` - Health check
+
+## macOS Permissions
+
+iMessage Gateway requires certain macOS permissions to function fully.
+
+### Full Disk Access (Required)
+
+The app needs to read the iMessage database located at `~/Library/Messages/chat.db`.
+
+1. Open **System Settings** → **Privacy & Security** → **Full Disk Access**
+2. Click the **+** button and add **Terminal** (or your terminal app)
+3. Restart Terminal
+
+### Contacts Access (Automatic via Full Disk Access)
+
+Contact names and photos are resolved by reading the macOS AddressBook database directly. This uses the same **Full Disk Access** permission required for the iMessage database - no separate Contacts permission is needed.
+
+If contacts aren't showing, ensure Full Disk Access is properly configured (see above).
+
+### Automation (Required for Sending)
+
+To send messages, the app uses AppleScript to control Messages.app:
+
+1. When you first send a message, macOS will prompt for permission
+2. Click **OK** to allow Terminal to control Messages.app
+3. If denied, go to **System Settings** → **Privacy & Security** → **Automation**
+4. Enable **Terminal** → **Messages**
+
+## Technical Notes: macOS Contacts Access
+
+This section documents the technical challenges and solutions for accessing macOS Contacts from a Python application. This information is preserved for future reference.
+
+### The Problem: macOS TCC (Transparency, Consent, and Control)
+
+macOS protects sensitive data (Contacts, Photos, etc.) using the TCC system. Apps must be granted explicit permission to access this data. However, **command-line tools have significant limitations**:
+
+1. **No permission dialogs**: When a CLI tool calls `CNContactStore.requestAccess()`, macOS silently denies the request instead of showing a dialog
+2. **Permission inheritance doesn't work**: Even if Terminal.app has Contacts permission, subprocess-spawned binaries don't inherit it
+3. **Bundle ID signing is insufficient**: Ad-hoc code signing with a bundle identifier doesn't grant TCC permissions to CLI tools
+4. **App bundles require proper launch**: A binary inside an `.app` bundle only gets its TCC permissions when launched via LaunchServices (`open` command), not when executed directly
+
+### Approaches That Don't Work
+
+1. **Swift/Objective-C binary using CNContactStore**: The binary runs fine but `CNContactStore.authorizationStatus()` returns `.notDetermined`, and `requestAccess()` silently fails with "Access Denied"
+
+2. **Granting permission to Terminal/VS Code**: Adding your terminal app to Privacy & Security → Contacts doesn't help because subprocess-spawned processes don't inherit the permission
+
+3. **Creating an app bundle with NSContactsUsageDescription**: The app bundle can request and receive permission when opened via `open /path/to/App.app`, but executing the binary directly (`/path/to/App.app/Contents/MacOS/binary`) doesn't use those permissions
+
+4. **Code signing with bundle identifier**: Even signing the binary with `codesign --identifier "com.example.app"` to match a granted TCC entry doesn't work for CLI execution
+
+### The Solution: Direct SQLite Access
+
+The macOS AddressBook is stored in a SQLite database at:
+```
+~/Library/Application Support/AddressBook/Sources/*/AddressBook-v22.abcddb
+```
+
+This database is accessible via **Full Disk Access** - the same permission already required for reading the iMessage database (`~/Library/Messages/chat.db`).
+
+**Key tables:**
+- `ZABCDRECORD` - Contact records (first name, last name, nickname)
+- `ZABCDPHONENUMBER` - Phone numbers linked to contacts via `ZOWNER` foreign key
+- `ZABCDEMAILADDRESS` - Email addresses linked to contacts via `ZOWNER` foreign key
+- `ZABCDLIKENESS` - Contact photos (binary blob in `ZDATA` column)
+
+**Phone number matching:**
+```sql
+SELECT r.ZFIRSTNAME, r.ZLASTNAME, r.ZNICKNAME, r.Z_PK
+FROM ZABCDRECORD r
+JOIN ZABCDPHONENUMBER p ON p.ZOWNER = r.Z_PK
+WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(p.ZFULLNUMBER, ' ', ''), '-', ''), '(', ''), ')', ''), '+', '') LIKE '%' || ?
+   OR ? LIKE '%' || REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(p.ZFULLNUMBER, ' ', ''), '-', ''), '(', ''), ')', ''), '+', '')
+```
+
+**Email matching:**
+```sql
+SELECT r.ZFIRSTNAME, r.ZLASTNAME, r.ZNICKNAME, r.Z_PK
+FROM ZABCDRECORD r
+JOIN ZABCDEMAILADDRESS e ON e.ZOWNER = r.Z_PK
+WHERE LOWER(e.ZADDRESS) = LOWER(?)
+```
+
+### Benefits of SQLite Approach
+
+1. **No separate permission needed** - Uses existing Full Disk Access
+2. **Simpler architecture** - Pure Python, no subprocess calls, no external binaries
+3. **Faster** - Direct database queries vs spawning processes
+4. **Reliable** - No macOS permission quirks to work around
+5. **Portable** - Works regardless of which terminal/IDE launches the server
+
+### Alternative: PyObjC
+
+If you need to use the CNContactStore API (e.g., for write access), you could use PyObjC:
+```bash
+pip install pyobjc-framework-Contacts
+```
+
+However, PyObjC has the same TCC permission issues as Swift binaries when run from CLI. It would only work if:
+- The Python process is launched from an app that has Contacts permission
+- Or the Python script is bundled into a proper .app with py2app/PyInstaller
+
+For read-only contact lookup, the SQLite approach is simpler and more reliable.

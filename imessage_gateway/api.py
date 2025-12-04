@@ -234,7 +234,10 @@ class SendRequest(BaseModel):
             return normalized
         if EMAIL_PATTERN.match(v):
             return v
-        raise ValueError("recipient must be a valid phone number or email")
+        # Allow full chat GUIDs for group chats (format: iMessage;+;chat123 or SMS;+;chat123)
+        if re.match(r"^(iMessage|SMS|RCS);[+-];chat\d+$", v):
+            return v
+        raise ValueError("recipient must be a valid phone number, email, or chat GUID")
 
     @field_validator("message")
     @classmethod
