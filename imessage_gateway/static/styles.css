@@ -1229,3 +1229,46 @@ body.resizing-sidebar {
     border-top: 1px solid var(--border-primary);
     background: var(--bg-modal-footer);
 }
+
+/* Optimistic message states */
+.message-wrapper.pending .message {
+    opacity: 0.7;
+}
+
+.message-wrapper.failed .message {
+    opacity: 0.8;
+    border: 1px solid #ff4444;
+}
+
+.message-status {
+    font-size: 11px;
+    margin-top: 4px;
+    text-align: right;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.message-status.failed {
+    color: #ff4444;
+}
+
+.message-status .retry-btn,
+.message-status .dismiss-btn {
+    background: none;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    color: inherit;
+}
+
+.message-status .retry-btn:hover {
+    background: rgba(255, 68, 68, 0.1);
+}
+
+.message-status .dismiss-btn:hover {
+    background: rgba(128, 128, 128, 0.1);
+}

@@ -42,6 +42,10 @@ let notificationsEnabled = true;  // Default on
 // Theme state
 let currentTheme = 'auto';  // 'auto', 'light', or 'dark'
 
+// Optimistic message state
+let pendingMessages = [];  // Messages being sent (not yet confirmed)
+let pendingMessageId = -1;  // Decreasing negative IDs for pending messages
+
 function applyTheme(theme) {
     currentTheme = theme;
 
@@ -468,6 +472,7 @@ function selectChat(item) {
     lastMessageId = 0;
     oldestMessageId = null;
     allMessages = [];
+    pendingMessages = [];  // Clear pending messages when switching chats
     hasMoreOlderMessages = true;
     isLoadingOlder = false;
 
@@ -576,16 +581,20 @@ function buildTapbackMap(messages) {
 }
 
 function renderMessages(messages, forceScroll = false) {
-    if (messages.length === 0) {
+    // Combine confirmed messages with pending messages
+    const allMsgs = [...messages, ...pendingMessages];
+
+    if (allMsgs.length === 0) {
         messagesDiv.innerHTML = '<div class="empty-state">No messages</div>';
         return;
     }
 
     // Build tapback map before rendering
-    const tapbackMap = buildTapbackMap(messages);
+    const tapbackMap = buildTapbackMap(allMsgs);
 
     // Messages come newest first, reverse for display
-    const sorted = [...messages].sort((a, b) => a.rowid - b.rowid);
+    // Pending messages (negative rowid) will sort to end due to high _sortOrder
+    const sorted = [...allMsgs].sort((a, b) => (a._sortOrder || a.rowid) - (b._sortOrder || b.rowid));
 
     // Filter out tapbacks for participant counting
     const realMessages = sorted.filter(m => !m.tapback_type);
@@ -658,6 +667,11 @@ function appendMessages(newMessages) {
             allMessages.push(msg);
             hasNewMessages = true;
 
+            // Check if this message confirms a pending message (from me, matching text)
+            if (msg.is_from_me && !msg.tapback_type) {
+                confirmPendingMessage(msg);
+            }
+
             // Check if this is a real message (not tapback) for notification purposes
             if (!msg.tapback_type && !msg.is_from_me) {
                 newChatMessage = true;
@@ -681,6 +695,95 @@ function appendMessages(newMessages) {
     // Move this chat to top of list
     if (hasNewMessages && currentChatId) {
         moveChatToTop(currentChatId);
+    }
+}
+
+// Confirm a pending message when the real one arrives from websocket
+function confirmPendingMessage(confirmedMsg) {
+    // Find pending message with matching text (simple heuristic)
+    const pendingIdx = pendingMessages.findIndex(p =>
+        p.text === confirmedMsg.text && p._pending && !p._failed
+    );
+
+    if (pendingIdx !== -1) {
+        // Remove the pending message - real one is now in allMessages
+        pendingMessages.splice(pendingIdx, 1);
+    }
+}
+
+// Mark a pending message as failed
+function markPendingFailed(pendingId) {
+    const pending = pendingMessages.find(p => p._pendingId === pendingId);
+    if (pending) {
+        pending._pending = false;
+        pending._failed = true;
+        renderMessages(allMessages);
+    }
+}
+
+// Retry a failed message
+function retryMessage(pendingId) {
+    const pending = pendingMessages.find(p => p._pendingId === pendingId);
+    if (!pending) return;
+
+    // Reset state to pending
+    pending._failed = false;
+    pending._pending = true;
+    renderMessages(allMessages);
+
+    // Retry the send
+    sendMessageAsync(pending._recipient, pending.text, pendingId);
+}
+
+// Dismiss a failed message
+function dismissFailedMessage(pendingId) {
+    const idx = pendingMessages.findIndex(p => p._pendingId === pendingId);
+    if (idx !== -1) {
+        pendingMessages.splice(idx, 1);
+        renderMessages(allMessages);
+    }
+}
+
+// Add optimistic message to pending list
+function addPendingMessage(text, recipient) {
+    const pendingId = `pending_${pendingMessageId--}`;
+    const pending = {
+        rowid: pendingMessageId,  // Negative ID
+        _sortOrder: Date.now(),   // Sort by time for display
+        _pendingId: pendingId,
+        _pending: true,
+        _failed: false,
+        _recipient: recipient,
+        text: text,
+        is_from_me: true,
+        timestamp: new Date().toISOString(),
+        tapback_type: null,
+        attachments: []
+    };
+    pendingMessages.push(pending);
+    renderMessages(allMessages);
+    scrollToBottom();
+    return pendingId;
+}
+
+// Async send that updates pending message status
+async function sendMessageAsync(recipient, text, pendingId) {
+    try {
+        const res = await fetch('/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipient, message: text })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            console.error('Send failed:', err);
+            markPendingFailed(pendingId);
+        }
+        // On success, websocket will deliver the confirmed message
+        // and confirmPendingMessage will clean up
+    } catch (err) {
+        console.error('Send failed:', err);
+        markPendingFailed(pendingId);
     }
 }
 
@@ -865,32 +968,49 @@ function renderTapbacks(tapbacks) {
 function messageHtml(msg, tapbacks = [], showSender = false) {
     const cls = msg.is_from_me ? 'from-me' : 'from-them';
 
+    // Add pending/failed class for optimistic messages
+    const pendingCls = msg._pending ? ' pending' : '';
+    const failedCls = msg._failed ? ' failed' : '';
+    const statusCls = pendingCls + failedCls;
+
     const text = msg.text || '';
     const attachmentsHtml = renderAttachments(msg.attachments);
     const senderHtml = showSender ? getMessageSenderHtml(msg) : '';
     const tapbacksHtml = renderTapbacks(tapbacks);
 
+    // Status indicator only for failed messages (pending just uses opacity)
+    let statusHtml = '';
+    if (msg._failed) {
+        statusHtml = `<div class="message-status failed">
+            Failed to send
+            <button class="retry-btn" onclick="retryMessage('${msg._pendingId}')">Retry</button>
+            <button class="dismiss-btn" onclick="dismissFailedMessage('${msg._pendingId}')">Dismiss</button>
+        </div>`;
+    }
+
     // If we only have attachments and no text, don't show empty text bubble
     if (!text && attachmentsHtml) {
         return `
-            <div class="message-wrapper ${cls}">
+            <div class="message-wrapper ${cls}${statusCls}" data-pending-id="${msg._pendingId || ''}">
                 ${senderHtml}
-                <div class="message ${cls}">
+                <div class="message ${cls}${statusCls}">
                     ${attachmentsHtml}
                     ${tapbacksHtml}
                 </div>
+                ${statusHtml}
             </div>
         `;
     }
 
     return `
-        <div class="message-wrapper ${cls}">
+        <div class="message-wrapper ${cls}${statusCls}" data-pending-id="${msg._pendingId || ''}">
             ${senderHtml}
-            <div class="message ${cls}">
+            <div class="message ${cls}${statusCls}">
                 ${text ? `<div class="text">${escapeHtml(text)}</div>` : ''}
                 ${attachmentsHtml}
                 ${tapbacksHtml}
             </div>
+            ${statusHtml}
         </div>
     `;
 }
@@ -981,31 +1101,15 @@ sendForm.addEventListener('submit', async (e) => {
     const text = messageInput.value.trim();
     if (!text || !currentRecipient) return;
 
-    sendBtn.disabled = true;
-    messageInput.disabled = true;
+    // Optimistically add message to UI immediately
+    const pendingId = addPendingMessage(text, currentRecipient);
 
-    try {
-        const res = await fetch('/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ recipient: currentRecipient, message: text })
-        });
-        if (!res.ok) {
-            const err = await res.json();
-            const errorMsg = typeof err.detail === 'string' ? err.detail : (err.detail?.msg || err.message || JSON.stringify(err.detail) || 'Unknown error');
-            alert('Failed to send: ' + errorMsg);
-        } else {
-            messageInput.value = '';
-            // WebSocket will receive the new message automatically
-        }
-    } catch (err) {
-        console.error('Send failed:', err);
-        alert('Failed to send message');
-    } finally {
-        sendBtn.disabled = false;
-        messageInput.disabled = false;
-        messageInput.focus();
-    }
+    // Clear input right away for better UX
+    messageInput.value = '';
+    messageInput.focus();
+
+    // Send in background - status updates happen via pending message state
+    sendMessageAsync(currentRecipient, text, pendingId);
 });
 
 // Settings functions
