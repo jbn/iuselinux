@@ -1808,10 +1808,23 @@ function isInputFocused() {
 
 // Check if any modal is open
 function isModalOpen() {
+    // Note: search-modal and vim-help-modal are created dynamically on first use.
+    // We must check if they exist before checking their hidden state.
+    //
+    // Bug avoided: Using `!element?.classList.contains('hidden')` is WRONG because:
+    //   - If element is null, `null?.classList.contains('hidden')` returns undefined
+    //   - `!undefined` evaluates to `true`, falsely indicating the modal is "open"
+    //   - This would block all vim keys from working until the modal is first opened
+    //
+    // Correct pattern: `(element && !element.classList.contains('hidden'))`
+    //   - If element is null, short-circuits to false (modal not open)
+    //   - If element exists, checks the hidden class as expected
+    const searchModal = document.getElementById('search-modal');
+    const helpModal = document.getElementById('vim-help-modal');
     return !settingsModal.classList.contains('hidden') ||
            !composeModal.classList.contains('hidden') ||
-           !document.getElementById('search-modal')?.classList.contains('hidden') ||
-           !document.getElementById('vim-help-modal')?.classList.contains('hidden');
+           (searchModal && !searchModal.classList.contains('hidden')) ||
+           (helpModal && !helpModal.classList.contains('hidden'));
 }
 
 // Get all chat items
