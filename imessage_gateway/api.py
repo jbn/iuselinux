@@ -171,6 +171,13 @@ class ContactResponse(BaseModel):
     image_url: str | None = None  # URL to fetch avatar if available
 
 
+class ParticipantResponse(BaseModel):
+    """Participant info for group chats."""
+
+    handle: str  # Phone number or email
+    contact: ContactResponse | None = None  # Resolved contact info
+
+
 class ChatResponse(BaseModel):
     """Chat/conversation response."""
 
@@ -179,7 +186,8 @@ class ChatResponse(BaseModel):
     display_name: str | None
     identifier: str | None
     last_message_time: str | None  # ISO format
-    participants: list[str] | None = None  # For group chats
+    participants: list[str] | None = None  # For group chats (raw handles, for backwards compat)
+    participant_contacts: list[ParticipantResponse] | None = None  # For group chats with resolved contacts
     contact: ContactResponse | None = None  # For 1:1 chats
 
 
@@ -284,6 +292,17 @@ def _chat_to_response(chat: Chat) -> ChatResponse:
     # Resolve contact for 1:1 chats (identifier is the phone/email)
     contact = _resolve_handle(chat.identifier)
 
+    # Resolve contacts for group chat participants
+    participant_contacts = None
+    if chat.participants:
+        participant_contacts = [
+            ParticipantResponse(
+                handle=handle,
+                contact=_resolve_handle(handle),
+            )
+            for handle in chat.participants
+        ]
+
     return ChatResponse(
         rowid=chat.rowid,
         guid=chat.guid,
@@ -291,6 +310,7 @@ def _chat_to_response(chat: Chat) -> ChatResponse:
         identifier=chat.identifier,
         last_message_time=chat.last_message_time.isoformat() if chat.last_message_time else None,
         participants=chat.participants,
+        participant_contacts=participant_contacts,
         contact=contact,
     )
 

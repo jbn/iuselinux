@@ -218,9 +218,24 @@ function getChatDisplayName(chat) {
         return chat.display_name;
     }
 
-    // Show participants for group chats
+    // Show participants for group chats - prefer resolved contact names
+    if (chat.participant_contacts && chat.participant_contacts.length > 0) {
+        const formatted = chat.participant_contacts.map(p => {
+            // Prefer contact name if available
+            if (p.contact && p.contact.name) {
+                return p.contact.name;
+            }
+            // Fall back to handle with privacy formatting
+            if (p.handle.startsWith('+') && p.handle.length > 4) {
+                return '...' + p.handle.slice(-4);
+            }
+            return p.handle;
+        });
+        return formatted.join(', ');
+    }
+
+    // Fallback to raw participants (backwards compatibility)
     if (chat.participants && chat.participants.length > 0) {
-        // Format as "person1, person2, ..." (truncate last 4 digits of phone for privacy)
         const formatted = chat.participants.map(p => {
             if (p.startsWith('+') && p.length > 4) {
                 return '...' + p.slice(-4);
