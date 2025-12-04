@@ -235,7 +235,7 @@ class TestConfigEndpoint:
         with patch("imessage_gateway.api.get_config", return_value={
             "custom_css": "",
             "prevent_sleep": True,
-            "vim_bindings": False,
+            "theme": "auto",
             "api_token": "",
             "contact_cache_ttl": 86400,
             "log_level": "WARNING",
@@ -244,25 +244,25 @@ class TestConfigEndpoint:
             assert response.status_code == 200
             data = response.json()
             assert "prevent_sleep" in data
-            assert "vim_bindings" in data
+            assert "theme" in data
             assert "log_level" in data
 
     def test_update_config(self, client):
         with patch("imessage_gateway.api.update_config", return_value={
             "custom_css": "",
             "prevent_sleep": False,
-            "vim_bindings": True,
+            "theme": "dark",
             "api_token": "",
             "contact_cache_ttl": 86400,
             "log_level": "INFO",
         }):
             response = client.put(
                 "/config",
-                json={"vim_bindings": True, "log_level": "INFO"},
+                json={"theme": "dark", "log_level": "INFO"},
             )
             assert response.status_code == 200
             data = response.json()
-            assert data["vim_bindings"] is True
+            assert data["theme"] == "dark"
             assert data["log_level"] == "INFO"
 
     def test_get_config_defaults(self, client):

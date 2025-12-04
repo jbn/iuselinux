@@ -38,7 +38,7 @@ class TestGetConfig:
     def test_returns_stored_config(self, temp_config_dir):
         config_dir, config_file = temp_config_dir
         config_dir.mkdir(parents=True)
-        stored = {"custom_css": "body { color: red; }", "prevent_sleep": True, "vim_bindings": False}
+        stored = {"custom_css": "body { color: red; }", "prevent_sleep": True, "theme": "dark"}
         config_file.write_text(json.dumps(stored))
 
         config = get_config()
@@ -56,7 +56,7 @@ class TestGetConfig:
         assert config["custom_css"] == "test"
         # Other keys should have defaults
         assert config["prevent_sleep"] == DEFAULTS["prevent_sleep"]
-        assert config["vim_bindings"] == DEFAULTS["vim_bindings"]
+        assert config["theme"] == DEFAULTS["theme"]
 
 
 class TestGetConfigValue:
@@ -69,7 +69,7 @@ class TestGetConfigValue:
     def test_returns_stored_value(self, temp_config_dir):
         config_dir, config_file = temp_config_dir
         config_dir.mkdir(parents=True)
-        stored = {"custom_css": "test css", "prevent_sleep": False, "vim_bindings": False}
+        stored = {"custom_css": "test css", "prevent_sleep": False, "theme": "light"}
         config_file.write_text(json.dumps(stored))
 
         value = get_config_value("custom_css")
