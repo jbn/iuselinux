@@ -983,14 +983,31 @@ function messageHtml(msg, tapbacks = [], showSender = false) {
         </div>`;
     }
 
-    // If we only have attachments and no text, don't show empty text bubble
+    // If we only have attachments and no text, render images standalone (no bubble)
     if (!text && attachmentsHtml) {
         return `
             <div class="message-wrapper ${cls}${statusCls}" data-pending-id="${msg._pendingId || ''}">
                 ${senderHtml}
-                <div class="message ${cls}${statusCls}">
+                <div class="message-attachments-only ${cls}${statusCls}">
                     ${attachmentsHtml}
                     ${tapbacksHtml}
+                </div>
+                ${statusHtml}
+            </div>
+        `;
+    }
+
+    // If we have both text and attachments, show text in bubble, attachments standalone below
+    if (text && attachmentsHtml) {
+        return `
+            <div class="message-wrapper ${cls}${statusCls}" data-pending-id="${msg._pendingId || ''}">
+                ${senderHtml}
+                <div class="message ${cls}${statusCls}">
+                    <div class="text">${escapeHtml(text)}</div>
+                    ${tapbacksHtml}
+                </div>
+                <div class="message-attachments-only ${cls}">
+                    ${attachmentsHtml}
                 </div>
                 ${statusHtml}
             </div>
@@ -1002,7 +1019,6 @@ function messageHtml(msg, tapbacks = [], showSender = false) {
             ${senderHtml}
             <div class="message ${cls}${statusCls}">
                 ${text ? `<div class="text">${escapeHtml(text)}</div>` : ''}
-                ${attachmentsHtml}
                 ${tapbacksHtml}
             </div>
             ${statusHtml}
@@ -1539,6 +1555,556 @@ document.addEventListener('mouseup', () => {
         localStorage.setItem(SIDEBAR_WIDTH_KEY, currentWidth.toString());
     }
 });
+
+// ==========================================
+// Search UI (/ key)
+// ==========================================
+
+let searchDebounceTimer = null;
+let searchOffset = 0;
+let searchHasMore = false;
+let currentSearchQuery = '';
+
+function showSearchModal() {
+    let modal = document.getElementById('search-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'search-modal';
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-backdrop"></div>
+            <div class="modal-content search-modal-content">
+                <div class="search-header">
+                    <div class="search-input-wrapper">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" id="search-input" placeholder="Search messages..." autocomplete="off">
+                    </div>
+                    <button class="search-close-btn">Cancel</button>
+                </div>
+                <div id="search-results" class="search-results">
+                    <div class="search-empty">Type to search messages</div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // Event listeners
+        modal.querySelector('.modal-backdrop').addEventListener('click', hideSearchModal);
+        modal.querySelector('.search-close-btn').addEventListener('click', hideSearchModal);
+
+        const input = modal.querySelector('#search-input');
+        input.addEventListener('input', (e) => {
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                performSearch(e.target.value.trim());
+            }, 300);
+        });
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                hideSearchModal();
+                e.preventDefault();
+            } else if (e.key === 'Enter') {
+                // Navigate to first result
+                const firstResult = modal.querySelector('.search-result');
+                if (firstResult) {
+                    navigateToSearchResult(firstResult);
+                }
+            }
+        });
+    }
+
+    modal.classList.remove('hidden');
+    searchOffset = 0;
+    searchHasMore = false;
+    currentSearchQuery = '';
+
+    // Focus input
+    setTimeout(() => {
+        const input = modal.querySelector('#search-input');
+        input.value = '';
+        input.focus();
+    }, 100);
+}
+
+function hideSearchModal() {
+    const modal = document.getElementById('search-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+}
+
+async function performSearch(query) {
+    const resultsDiv = document.getElementById('search-results');
+    if (!resultsDiv) return;
+
+    if (!query || query.length < 2) {
+        resultsDiv.innerHTML = '<div class="search-empty">Type at least 2 characters to search</div>';
+        return;
+    }
+
+    currentSearchQuery = query;
+    searchOffset = 0;
+
+    resultsDiv.innerHTML = '<div class="search-loading">Searching...</div>';
+
+    try {
+        const params = new URLSearchParams({ q: query, limit: '20', offset: '0' });
+        const res = await fetch(`/search?${params}`);
+
+        if (!res.ok) {
+            throw new Error('Search failed');
+        }
+
+        const data = await res.json();
+        searchHasMore = data.has_more;
+        renderSearchResults(data.messages, false);
+    } catch (err) {
+        console.error('Search error:', err);
+        resultsDiv.innerHTML = '<div class="search-empty search-error">Search failed. Please try again.</div>';
+    }
+}
+
+async function loadMoreSearchResults() {
+    if (!searchHasMore || !currentSearchQuery) return;
+
+    searchOffset += 20;
+    const resultsDiv = document.getElementById('search-results');
+
+    try {
+        const params = new URLSearchParams({
+            q: currentSearchQuery,
+            limit: '20',
+            offset: searchOffset.toString()
+        });
+        const res = await fetch(`/search?${params}`);
+
+        if (!res.ok) throw new Error('Search failed');
+
+        const data = await res.json();
+        searchHasMore = data.has_more;
+        renderSearchResults(data.messages, true);
+    } catch (err) {
+        console.error('Load more error:', err);
+    }
+}
+
+function renderSearchResults(messages, append = false) {
+    const resultsDiv = document.getElementById('search-results');
+    if (!resultsDiv) return;
+
+    if (!append && messages.length === 0) {
+        resultsDiv.innerHTML = '<div class="search-empty">No messages found</div>';
+        return;
+    }
+
+    const html = messages.map(msg => {
+        // Find chat info
+        const chat = allChats.find(c => c.rowid === msg.chat_id);
+        const chatName = chat ? getChatDisplayName(chat) : 'Unknown Chat';
+
+        // Format timestamp
+        const timeStr = msg.timestamp ? formatSearchTime(msg.timestamp) : '';
+
+        // Sender
+        const sender = msg.is_from_me ? 'You' : (msg.contact?.name || msg.handle_id || 'Unknown');
+
+        // Truncate and highlight text
+        const text = msg.text || '';
+        const truncated = text.length > 150 ? text.substring(0, 150) + '...' : text;
+
+        return `
+            <div class="search-result" data-chat-id="${msg.chat_id}" data-message-rowid="${msg.rowid}">
+                <div class="search-result-header">
+                    <span class="search-result-chat">${escapeHtml(chatName)}</span>
+                    <span class="search-result-time">${escapeHtml(timeStr)}</span>
+                </div>
+                <div class="search-result-sender">${escapeHtml(sender)}</div>
+                <div class="search-result-text">${escapeHtml(truncated)}</div>
+            </div>
+        `;
+    }).join('');
+
+    if (append) {
+        // Remove load more button first
+        const loadMore = resultsDiv.querySelector('.search-load-more');
+        if (loadMore) loadMore.remove();
+        resultsDiv.insertAdjacentHTML('beforeend', html);
+    } else {
+        resultsDiv.innerHTML = html;
+    }
+
+    // Add load more button if there are more results
+    if (searchHasMore) {
+        resultsDiv.insertAdjacentHTML('beforeend', `
+            <button class="search-load-more">Load more results</button>
+        `);
+        resultsDiv.querySelector('.search-load-more').addEventListener('click', loadMoreSearchResults);
+    }
+
+    // Add click handlers to results
+    resultsDiv.querySelectorAll('.search-result').forEach(el => {
+        el.addEventListener('click', () => navigateToSearchResult(el));
+    });
+}
+
+function formatSearchTime(isoString) {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+
+    if (date.toDateString() === now.toDateString()) {
+        return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    } else if (diffDays < 7) {
+        return date.toLocaleDateString([], { weekday: 'short' }) + ' ' +
+               date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    } else {
+        return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+}
+
+function navigateToSearchResult(el) {
+    const chatId = parseInt(el.dataset.chatId, 10);
+    const messageRowid = parseInt(el.dataset.messageRowid, 10);
+
+    // Close search modal
+    hideSearchModal();
+
+    // Navigate to chat
+    const chatItem = chatList.querySelector(`.chat-item[data-id="${chatId}"]`);
+    if (chatItem) {
+        selectChat(chatItem);
+
+        // After messages load, try to scroll to the specific message
+        // This is a best-effort since the message might be in older history
+        setTimeout(() => {
+            const msgEl = messagesDiv.querySelector(`[data-rowid="${messageRowid}"]`);
+            if (msgEl) {
+                msgEl.scrollIntoView({ block: 'center' });
+                msgEl.classList.add('vim-selected');
+                setTimeout(() => msgEl.classList.remove('vim-selected'), 2000);
+            }
+        }, 500);
+    }
+}
+
+// ==========================================
+// Vim-style keyboard navigation
+// ==========================================
+
+// Vim navigation state
+let vimMode = true;  // Enabled by default
+let selectedMessageIndex = -1;  // Currently selected message in message list
+let gPending = false;  // Track 'g' key for gg command
+
+// Check if input is focused (vim keys should be disabled)
+function isInputFocused() {
+    const active = document.activeElement;
+    if (!active) return false;
+    const tag = active.tagName.toLowerCase();
+    return tag === 'input' || tag === 'textarea' || active.isContentEditable;
+}
+
+// Check if any modal is open
+function isModalOpen() {
+    return !settingsModal.classList.contains('hidden') ||
+           !composeModal.classList.contains('hidden') ||
+           !document.getElementById('search-modal')?.classList.contains('hidden') ||
+           !document.getElementById('vim-help-modal')?.classList.contains('hidden');
+}
+
+// Get all chat items
+function getChatItems() {
+    return Array.from(chatList.querySelectorAll('.chat-item'));
+}
+
+// Get currently selected chat item
+function getSelectedChatItem() {
+    return chatList.querySelector('.chat-item.active');
+}
+
+// Get index of selected chat
+function getSelectedChatIndex() {
+    const items = getChatItems();
+    const selected = getSelectedChatItem();
+    return selected ? items.indexOf(selected) : -1;
+}
+
+// Select chat by index
+function selectChatByIndex(index) {
+    const items = getChatItems();
+    if (index < 0) index = 0;
+    if (index >= items.length) index = items.length - 1;
+    if (items[index]) {
+        selectChat(items[index]);
+        items[index].scrollIntoView({ block: 'nearest' });
+    }
+}
+
+// Get all message elements (excluding timestamp separators)
+function getMessageElements() {
+    return Array.from(messagesDiv.querySelectorAll('.message-wrapper, .message:not(.message-wrapper .message)'));
+}
+
+// Clear message selection
+function clearMessageSelection() {
+    messagesDiv.querySelectorAll('.vim-selected').forEach(el => el.classList.remove('vim-selected'));
+    selectedMessageIndex = -1;
+}
+
+// Select message by index
+function selectMessageByIndex(index) {
+    const messages = getMessageElements();
+    if (messages.length === 0) return;
+
+    // Clamp index
+    if (index < 0) index = 0;
+    if (index >= messages.length) index = messages.length - 1;
+
+    // Clear previous selection
+    clearMessageSelection();
+
+    // Select new message
+    selectedMessageIndex = index;
+    const msg = messages[index];
+    msg.classList.add('vim-selected');
+    msg.scrollIntoView({ block: 'nearest' });
+}
+
+// Copy selected message text to clipboard
+async function copySelectedMessage() {
+    const messages = getMessageElements();
+    if (selectedMessageIndex < 0 || selectedMessageIndex >= messages.length) return;
+
+    const msg = messages[selectedMessageIndex];
+    const textEl = msg.querySelector('.text');
+    const text = textEl ? textEl.textContent : '';
+
+    if (text) {
+        try {
+            await navigator.clipboard.writeText(text);
+            // Brief visual feedback
+            msg.classList.add('vim-copied');
+            setTimeout(() => msg.classList.remove('vim-copied'), 300);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
+    }
+}
+
+// Show vim help modal
+function showVimHelp() {
+    let modal = document.getElementById('vim-help-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'vim-help-modal';
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-backdrop"></div>
+            <div class="modal-content vim-help-content">
+                <div class="modal-header">
+                    <h2>Keyboard Shortcuts</h2>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="vim-help-section">
+                        <h3>Chat List</h3>
+                        <div class="vim-help-row"><kbd>j</kbd> <span>Next chat</span></div>
+                        <div class="vim-help-row"><kbd>k</kbd> <span>Previous chat</span></div>
+                        <div class="vim-help-row"><kbd>gg</kbd> <span>First chat</span></div>
+                        <div class="vim-help-row"><kbd>G</kbd> <span>Last chat</span></div>
+                        <div class="vim-help-row"><kbd>Enter</kbd> / <kbd>l</kbd> <span>Open chat</span></div>
+                    </div>
+                    <div class="vim-help-section">
+                        <h3>Messages</h3>
+                        <div class="vim-help-row"><kbd>J</kbd> <span>Next message</span></div>
+                        <div class="vim-help-row"><kbd>K</kbd> <span>Previous message</span></div>
+                        <div class="vim-help-row"><kbd>gg</kbd> <span>First message</span></div>
+                        <div class="vim-help-row"><kbd>G</kbd> <span>Last message</span></div>
+                        <div class="vim-help-row"><kbd>y</kbd> <span>Copy message</span></div>
+                    </div>
+                    <div class="vim-help-section">
+                        <h3>General</h3>
+                        <div class="vim-help-row"><kbd>/</kbd> <span>Search messages</span></div>
+                        <div class="vim-help-row"><kbd>c</kbd> / <kbd>i</kbd> <span>Focus input</span></div>
+                        <div class="vim-help-row"><kbd>h</kbd> / <kbd>Esc</kbd> <span>Back / Close</span></div>
+                        <div class="vim-help-row"><kbd>?</kbd> <span>Show this help</span></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // Event listeners
+        modal.querySelector('.modal-backdrop').addEventListener('click', hideVimHelp);
+        modal.querySelector('.modal-close').addEventListener('click', hideVimHelp);
+    }
+    modal.classList.remove('hidden');
+}
+
+function hideVimHelp() {
+    const modal = document.getElementById('vim-help-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+// Main vim keydown handler
+function handleVimKey(e) {
+    // Skip if input focused or modal open (except for Escape)
+    if (e.key !== 'Escape' && (isInputFocused() || isModalOpen())) {
+        return;
+    }
+
+    // Handle 'g' prefix for gg command
+    if (gPending) {
+        gPending = false;
+        if (e.key === 'g') {
+            // gg - go to top
+            if (selectedMessageIndex >= 0) {
+                selectMessageByIndex(0);
+            } else {
+                selectChatByIndex(0);
+            }
+            e.preventDefault();
+            return;
+        }
+    }
+
+    switch (e.key) {
+        // Chat list navigation
+        case 'j':
+            if (!e.shiftKey) {
+                const idx = getSelectedChatIndex();
+                selectChatByIndex(idx + 1);
+                e.preventDefault();
+            }
+            break;
+
+        case 'k':
+            if (!e.shiftKey) {
+                const idx = getSelectedChatIndex();
+                selectChatByIndex(idx - 1);
+                e.preventDefault();
+            }
+            break;
+
+        // Message navigation (Shift + j/k)
+        case 'J':
+            if (e.shiftKey) {
+                selectMessageByIndex(selectedMessageIndex + 1);
+                e.preventDefault();
+            }
+            break;
+
+        case 'K':
+            if (e.shiftKey) {
+                selectMessageByIndex(selectedMessageIndex - 1);
+                e.preventDefault();
+            }
+            break;
+
+        // Go to start (g pending for gg)
+        case 'g':
+            if (!e.shiftKey) {
+                gPending = true;
+                // Reset after timeout
+                setTimeout(() => { gPending = false; }, 500);
+            }
+            break;
+
+        // Go to end
+        case 'G':
+            if (e.shiftKey) {
+                if (selectedMessageIndex >= 0) {
+                    const messages = getMessageElements();
+                    selectMessageByIndex(messages.length - 1);
+                } else {
+                    const items = getChatItems();
+                    selectChatByIndex(items.length - 1);
+                }
+                e.preventDefault();
+            }
+            break;
+
+        // Open chat / enter messages
+        case 'Enter':
+        case 'l':
+            if (e.key === 'l' || !isInputFocused()) {
+                const selected = getSelectedChatItem();
+                if (selected && !currentChatId) {
+                    selectChat(selected);
+                    e.preventDefault();
+                }
+            }
+            break;
+
+        // Back / close
+        case 'h':
+        case 'Escape':
+            // Close help modal first
+            const helpModal = document.getElementById('vim-help-modal');
+            if (helpModal && !helpModal.classList.contains('hidden')) {
+                hideVimHelp();
+                e.preventDefault();
+                return;
+            }
+
+            // Close search modal
+            const searchModal = document.getElementById('search-modal');
+            if (searchModal && !searchModal.classList.contains('hidden')) {
+                hideSearchModal();
+                e.preventDefault();
+                return;
+            }
+
+            // Clear message selection
+            if (selectedMessageIndex >= 0) {
+                clearMessageSelection();
+                e.preventDefault();
+                return;
+            }
+            break;
+
+        // Focus input
+        case 'c':
+        case 'i':
+            if (messageInput && !messageInput.disabled) {
+                messageInput.focus();
+                e.preventDefault();
+            }
+            break;
+
+        // Copy selected message
+        case 'y':
+            copySelectedMessage();
+            e.preventDefault();
+            break;
+
+        // Search (handled by search UI feature)
+        case '/':
+            if (typeof showSearchModal === 'function') {
+                showSearchModal();
+                e.preventDefault();
+            }
+            break;
+
+        // Help
+        case '?':
+            showVimHelp();
+            e.preventDefault();
+            break;
+    }
+}
+
+// Register vim keydown handler
+document.addEventListener('keydown', handleVimKey);
+
+// Clear message selection when switching chats
+const originalSelectChat = selectChat;
+selectChat = function(item) {
+    clearMessageSelection();
+    originalSelectChat(item);
+};
 
 // Initial load
 loadConfig();

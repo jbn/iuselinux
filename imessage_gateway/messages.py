@@ -394,3 +394,108 @@ def get_chat_messages(
     return get_messages(
         chat_id=chat_id, limit=limit, after_rowid=after_rowid, db_path=db_path
     )
+
+
+def search_messages(
+    query: str,
+    chat_id: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    db_path: Path | None = None,
+    include_attachments: bool = True,
+) -> list[Message]:
+    """
+    Search messages by text content using LIKE queries.
+
+    Args:
+        query: Search string (will be matched with %query%)
+        chat_id: Filter to specific chat (None for all)
+        limit: Max messages to return
+        offset: Offset for pagination
+        db_path: Override default db path
+        include_attachments: Whether to fetch attachment metadata
+
+    Returns:
+        List of Message objects matching the query, newest first
+    """
+    if not query or not query.strip():
+        return []
+
+    with get_connection(db_path) as conn:
+        cur = conn.cursor()
+
+        # Base query with handle join - search in both text and attributedBody
+        sql = """
+        SELECT
+            message.ROWID as rowid,
+            message.guid,
+            message.text,
+            message.attributedBody,
+            message.date as mac_time,
+            message.is_from_me,
+            message.associated_message_type,
+            message.associated_message_guid,
+            message.cache_has_attachments,
+            handle.id as handle_id,
+            chat_message_join.chat_id
+        FROM message
+        LEFT JOIN handle ON message.handle_id = handle.ROWID
+        LEFT JOIN chat_message_join ON message.ROWID = chat_message_join.message_id
+        WHERE (message.text LIKE ? OR message.text LIKE ?)
+        """
+
+        # Use wildcards for LIKE matching (case-insensitive in SQLite by default)
+        search_pattern = f"%{query}%"
+        params: list = [search_pattern, search_pattern]
+
+        if chat_id is not None:
+            sql += " AND chat_message_join.chat_id = ?"
+            params.append(chat_id)
+
+        sql += " ORDER BY message.date DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+
+        # Collect message IDs that have attachments
+        message_ids_with_attachments = [
+            row["rowid"] for row in rows
+            if row["cache_has_attachments"]
+        ]
+
+    # Fetch attachments in a separate query (outside the connection context)
+    attachments_map: dict[int, list[Attachment]] = {}
+    if include_attachments and message_ids_with_attachments:
+        attachments_map = get_attachments_for_messages(
+            message_ids_with_attachments, db_path
+        )
+
+    messages = []
+    for row in rows:
+        # Use text field if available, otherwise extract from attributedBody
+        text = row["text"]
+        if text is None:
+            text = extract_text_from_attributed_body(row["attributedBody"])
+
+        # Check for tapback reaction
+        assoc_type = row["associated_message_type"]
+        tapback_type = TAPBACK_TYPES.get(assoc_type) if assoc_type else None
+        associated_guid = row["associated_message_guid"]
+
+        messages.append(
+            Message(
+                rowid=row["rowid"],
+                guid=row["guid"],
+                text=text,
+                timestamp=mac_absolute_to_datetime(row["mac_time"]),
+                is_from_me=bool(row["is_from_me"]),
+                handle_id=row["handle_id"],
+                chat_id=row["chat_id"],
+                tapback_type=tapback_type,
+                associated_guid=associated_guid,
+                attachments=attachments_map.get(row["rowid"], []),
+            )
+        )
+
+    return messages

@@ -54,7 +54,7 @@ RATE_LIMIT_WINDOW = 60  # Window in seconds
 _send_timestamps: deque[float] = deque()
 
 from .db import FullDiskAccessError, check_db_access
-from .messages import get_chats, get_messages, get_attachment, Chat, Message, Attachment
+from .messages import get_chats, get_messages, get_attachment, search_messages, Chat, Message, Attachment
 from .sender import send_imessage, SendResult
 from .config import get_config, get_config_value, update_config, DEFAULTS as CONFIG_DEFAULTS
 from .contacts import resolve_contact, is_available as contacts_available, ContactInfo
@@ -408,6 +408,48 @@ def list_messages(
     messages = get_messages(chat_id=chat_id, limit=limit, after_rowid=after_rowid, before_rowid=before_rowid)
     logger.info("Returning %d messages", len(messages))
     return [_message_to_response(m) for m in messages]
+
+
+class SearchResponse(BaseModel):
+    """Response from searching messages."""
+
+    messages: list[MessageResponse]
+    total: int  # Number of results returned (may be less than limit if fewer matches)
+    has_more: bool  # True if there are more results beyond limit+offset
+
+
+@app.get("/search", response_model=SearchResponse)
+def search(
+    q: str = Query(..., min_length=1, description="Search query string"),
+    chat_id: int | None = Query(default=None, description="Filter to specific chat"),
+    limit: int = Query(default=50, le=100, description="Max results to return"),
+    offset: int = Query(default=0, ge=0, description="Offset for pagination"),
+) -> SearchResponse:
+    """
+    Search messages by text content.
+
+    Uses LIKE queries against the read-only chat.db database.
+    Results are ordered by date descending (newest first).
+
+    Example:
+        GET /search?q=hello&limit=20
+        GET /search?q=meeting&chat_id=123&limit=50&offset=50
+    """
+    logger.info("Searching messages (q=%r, chat_id=%s, limit=%d, offset=%d)", q, chat_id, limit, offset)
+
+    # Fetch limit+1 to detect if there are more results
+    messages = search_messages(query=q, chat_id=chat_id, limit=limit + 1, offset=offset)
+
+    has_more = len(messages) > limit
+    if has_more:
+        messages = messages[:limit]
+
+    logger.info("Search returned %d results (has_more=%s)", len(messages), has_more)
+    return SearchResponse(
+        messages=[_message_to_response(m) for m in messages],
+        total=len(messages),
+        has_more=has_more,
+    )
 
 
 def _check_rate_limit() -> None:
