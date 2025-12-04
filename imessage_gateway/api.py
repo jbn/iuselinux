@@ -356,11 +356,12 @@ def list_chats(limit: int = Query(default=100, le=500)) -> list[ChatResponse]:
 def list_messages(
     chat_id: int | None = Query(default=None, description="Filter to specific chat"),
     limit: int = Query(default=50, le=500),
-    after_rowid: int | None = Query(default=None, description="Only messages after this rowid"),
+    after_rowid: int | None = Query(default=None, description="Only messages after this rowid (for new messages)"),
+    before_rowid: int | None = Query(default=None, description="Only messages before this rowid (for pagination)"),
 ) -> list[MessageResponse]:
     """Fetch messages, optionally filtered by chat."""
-    logger.info("Fetching messages (chat_id=%s, limit=%d, after_rowid=%s)", chat_id, limit, after_rowid)
-    messages = get_messages(chat_id=chat_id, limit=limit, after_rowid=after_rowid)
+    logger.info("Fetching messages (chat_id=%s, limit=%d, after_rowid=%s, before_rowid=%s)", chat_id, limit, after_rowid, before_rowid)
+    messages = get_messages(chat_id=chat_id, limit=limit, after_rowid=after_rowid, before_rowid=before_rowid)
     logger.info("Returning %d messages", len(messages))
     return [_message_to_response(m) for m in messages]
 
@@ -919,6 +920,7 @@ class ConfigResponse(BaseModel):
     api_token: str = ""
     contact_cache_ttl: int = 86400  # seconds
     log_level: str = "WARNING"
+    notifications_enabled: bool = True
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -930,6 +932,7 @@ class ConfigUpdateRequest(BaseModel):
     api_token: str | None = None
     contact_cache_ttl: int | None = None
     log_level: str | None = None
+    notifications_enabled: bool | None = None
 
 
 @app.get("/config", response_model=ConfigResponse)

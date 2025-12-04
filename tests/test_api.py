@@ -132,7 +132,7 @@ class TestMessagesEndpoint:
             with patch("imessage_gateway.api.contacts_available", return_value=False):
                 response = client.get("/messages?chat_id=1&limit=50&after_rowid=99")
                 assert response.status_code == 200
-                mock_get.assert_called_once_with(chat_id=1, limit=50, after_rowid=99)
+                mock_get.assert_called_once_with(chat_id=1, limit=50, after_rowid=99, before_rowid=None)
 
 
 class TestPollEndpoint:

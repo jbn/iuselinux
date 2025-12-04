@@ -20,6 +20,7 @@ DEFAULTS: dict[str, Any] = {
     "api_token": "",  # Empty means no authentication required
     "contact_cache_ttl": 86400,  # Contact cache TTL in seconds (default 24 hours)
     "log_level": "WARNING",  # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    "notifications_enabled": True,  # Browser notifications for new messages
 }
 
 

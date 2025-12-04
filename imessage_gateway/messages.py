@@ -166,6 +166,7 @@ def get_messages(
     chat_id: int | None = None,
     limit: int = 50,
     after_rowid: int | None = None,
+    before_rowid: int | None = None,
     db_path: Path | None = None,
     include_attachments: bool = True,
 ) -> list[Message]:
@@ -175,7 +176,8 @@ def get_messages(
     Args:
         chat_id: Filter to specific chat (None for all)
         limit: Max messages to return
-        after_rowid: Only return messages with ROWID > this (for polling)
+        after_rowid: Only return messages with ROWID > this (for polling new messages)
+        before_rowid: Only return messages with ROWID < this (for backward pagination)
         db_path: Override default db path
         include_attachments: Whether to fetch attachment metadata
 
@@ -214,6 +216,10 @@ def get_messages(
         if after_rowid is not None:
             conditions.append("message.ROWID > ?")
             params.append(after_rowid)
+
+        if before_rowid is not None:
+            conditions.append("message.ROWID < ?")
+            params.append(before_rowid)
 
         if conditions:
             query += " WHERE " + " AND ".join(conditions)

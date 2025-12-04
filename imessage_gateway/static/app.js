@@ -21,12 +21,22 @@ let currentChatId = null;
 let currentRecipient = null;
 let websocket = null;
 let lastMessageId = 0;
+let oldestMessageId = null;  // Track oldest message for backward pagination
 let allMessages = [];  // Store all messages for current chat
 let currentConfig = {}; // Store current configuration
+let allChats = [];  // Store all chats for reordering
+
+// Pagination state
+const PAGE_SIZE = 20;
+let isLoadingOlder = false;
+let hasMoreOlderMessages = true;
 
 // Auto-scroll state
 let userHasScrolledUp = false;  // Track if user manually scrolled up
 const SCROLL_THRESHOLD = 50;    // Pixels from bottom to consider "at bottom"
+
+// Notification state
+let notificationsEnabled = true;  // Default on
 
 function isScrolledToBottom() {
     return messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < SCROLL_THRESHOLD;
@@ -58,13 +68,38 @@ function hideNewMessageIndicator() {
     }
 }
 
-// Track user scroll
+// Loading indicator for pagination
+function showLoadingOlder() {
+    let loader = document.getElementById('loading-older');
+    if (!loader) {
+        loader = document.createElement('div');
+        loader.id = 'loading-older';
+        loader.className = 'loading-older';
+        loader.innerHTML = 'Loading older messages...';
+        messagesDiv.insertBefore(loader, messagesDiv.firstChild);
+    }
+    loader.classList.add('visible');
+}
+
+function hideLoadingOlder() {
+    const loader = document.getElementById('loading-older');
+    if (loader) {
+        loader.classList.remove('visible');
+    }
+}
+
+// Track user scroll - detect when scrolled to top for pagination
 messagesDiv.addEventListener('scroll', () => {
     if (isScrolledToBottom()) {
         userHasScrolledUp = false;
         hideNewMessageIndicator();
     } else {
         userHasScrolledUp = true;
+    }
+
+    // Load older messages when scrolled near top
+    if (messagesDiv.scrollTop < 100 && !isLoadingOlder && hasMoreOlderMessages && currentChatId) {
+        loadOlderMessages();
     }
 });
 
@@ -149,6 +184,7 @@ async function loadChats() {
     try {
         const res = await fetch('/chats?limit=100');
         const chats = await res.json();
+        allChats = chats;
         renderChats(chats);
 
         // Auto-select the first (most recent) chat if none is selected
@@ -230,9 +266,10 @@ function renderChats(chats) {
         // Group chats have identifiers starting with "chat" (e.g., "chat123456")
         const isGroupChat = chat.identifier && chat.identifier.startsWith('chat');
         const sendTarget = isGroupChat ? chat.guid : (chat.identifier || '');
+        const isActive = chat.rowid === currentChatId;
 
         return `
-            <div class="chat-item" data-id="${chat.rowid}" data-identifier="${chat.identifier || ''}" data-send-target="${sendTarget}">
+            <div class="chat-item${isActive ? ' active' : ''}" data-id="${chat.rowid}" data-identifier="${chat.identifier || ''}" data-send-target="${sendTarget}">
                 <div class="chat-avatar">${avatarHtml}</div>
                 <div class="chat-info">
                     <div class="chat-name">${escapeHtml(displayName)}</div>
@@ -245,6 +282,16 @@ function renderChats(chats) {
     chatList.querySelectorAll('.chat-item').forEach(item => {
         item.addEventListener('click', () => selectChat(item));
     });
+}
+
+// Move a chat to top of list (when new message arrives)
+function moveChatToTop(chatId) {
+    const chatIndex = allChats.findIndex(c => c.rowid === chatId);
+    if (chatIndex > 0) {
+        const [chat] = allChats.splice(chatIndex, 1);
+        allChats.unshift(chat);
+        renderChats(allChats);
+    }
 }
 
 function selectChat(item) {
@@ -264,12 +311,15 @@ function selectChat(item) {
         messageInput.placeholder = 'Type a message...';
     }
 
-    // Reset scroll state for new chat
+    // Reset scroll and pagination state for new chat
     userHasScrolledUp = false;
     hideNewMessageIndicator();
-
     lastMessageId = 0;
+    oldestMessageId = null;
     allMessages = [];
+    hasMoreOlderMessages = true;
+    isLoadingOlder = false;
+
     loadMessages();
     connectWebSocket();
 }
@@ -277,35 +327,130 @@ function selectChat(item) {
 async function loadMessages() {
     if (!currentChatId) return;
     try {
-        let url = `/messages?chat_id=${currentChatId}&limit=100`;
+        // Load initial page of messages (most recent PAGE_SIZE)
+        let url = `/messages?chat_id=${currentChatId}&limit=${PAGE_SIZE}`;
         const res = await fetch(url);
         const messages = await res.json();
         allMessages = messages;
-        renderMessages(allMessages, true);  // Force scroll on initial load
+
+        // Track IDs for pagination
         if (messages.length > 0) {
             lastMessageId = Math.max(...messages.map(m => m.rowid));
+            oldestMessageId = Math.min(...messages.map(m => m.rowid));
         }
+
+        // If we got fewer messages than PAGE_SIZE, there are no more
+        hasMoreOlderMessages = messages.length >= PAGE_SIZE;
+
+        renderMessages(allMessages, true);  // Force scroll on initial load
     } catch (err) {
         console.error('Failed to load messages:', err);
         messagesDiv.innerHTML = '<div class="empty-state">Failed to load messages</div>';
     }
 }
 
+async function loadOlderMessages() {
+    if (!currentChatId || !oldestMessageId || isLoadingOlder || !hasMoreOlderMessages) return;
+
+    isLoadingOlder = true;
+    showLoadingOlder();
+
+    // Remember scroll position to maintain it after adding older messages
+    const oldScrollHeight = messagesDiv.scrollHeight;
+
+    try {
+        const url = `/messages?chat_id=${currentChatId}&limit=${PAGE_SIZE}&before_rowid=${oldestMessageId}`;
+        const res = await fetch(url);
+        const olderMessages = await res.json();
+
+        if (olderMessages.length > 0) {
+            // Add to our collection (avoid duplicates)
+            const existingIds = new Set(allMessages.map(m => m.rowid));
+            for (const msg of olderMessages) {
+                if (!existingIds.has(msg.rowid)) {
+                    allMessages.push(msg);
+                }
+            }
+
+            // Update oldest ID
+            oldestMessageId = Math.min(...olderMessages.map(m => m.rowid));
+
+            // Render and restore scroll position
+            renderMessages(allMessages, false);
+
+            // Restore scroll position (keep user at same relative position)
+            const newScrollHeight = messagesDiv.scrollHeight;
+            messagesDiv.scrollTop = newScrollHeight - oldScrollHeight;
+        }
+
+        // If we got fewer messages than PAGE_SIZE, there are no more
+        hasMoreOlderMessages = olderMessages.length >= PAGE_SIZE;
+    } catch (err) {
+        console.error('Failed to load older messages:', err);
+    } finally {
+        isLoadingOlder = false;
+        hideLoadingOlder();
+    }
+}
+
 // Time gap threshold for showing timestamp separator (in minutes)
 const TIMESTAMP_GAP_MINUTES = 60;
+
+// Build tapback map: message GUID -> list of tapback reactions
+function buildTapbackMap(messages) {
+    const tapbackMap = new Map();
+    for (const msg of messages) {
+        if (msg.tapback_type && msg.associated_guid) {
+            // Extract the target message GUID from associated_guid
+            // Format is like "p:0/GUID" or "bp:GUID" - extract GUID part
+            let targetGuid = msg.associated_guid;
+            if (targetGuid.includes('/')) {
+                targetGuid = targetGuid.split('/').pop();
+            }
+            if (targetGuid.startsWith('bp:')) {
+                targetGuid = targetGuid.substring(3);
+            }
+
+            if (!tapbackMap.has(targetGuid)) {
+                tapbackMap.set(targetGuid, []);
+            }
+            tapbackMap.get(targetGuid).push({
+                type: msg.tapback_type,
+                is_from_me: msg.is_from_me,
+                handle_id: msg.handle_id
+            });
+        }
+    }
+    return tapbackMap;
+}
 
 function renderMessages(messages, forceScroll = false) {
     if (messages.length === 0) {
         messagesDiv.innerHTML = '<div class="empty-state">No messages</div>';
         return;
     }
+
+    // Build tapback map before rendering
+    const tapbackMap = buildTapbackMap(messages);
+
     // Messages come newest first, reverse for display
     const sorted = [...messages].sort((a, b) => a.rowid - b.rowid);
 
     let html = '';
+
+    // Show "load more" indicator at top if there are more messages
+    if (hasMoreOlderMessages) {
+        html += '<div id="loading-older" class="loading-older">Scroll up for older messages</div>';
+    }
+
     let lastTimestamp = null;
 
     for (const msg of sorted) {
+        // Skip tapback messages - they're rendered as annotations on their target
+        if (msg.tapback_type) {
+            continue;
+        }
+
         // Check if we need a timestamp separator
         if (msg.timestamp) {
             const msgTime = new Date(msg.timestamp);
@@ -314,7 +459,10 @@ function renderMessages(messages, forceScroll = false) {
             }
             lastTimestamp = msgTime;
         }
-        html += messageHtml(msg);
+
+        // Get tapbacks for this message
+        const tapbacks = tapbackMap.get(msg.guid) || [];
+        html += messageHtml(msg, tapbacks);
     }
 
     messagesDiv.innerHTML = html;
@@ -329,10 +477,17 @@ function appendMessages(newMessages) {
     // Add new messages to our collection, avoiding duplicates
     const existingIds = new Set(allMessages.map(m => m.rowid));
     let hasNewMessages = false;
+    let newChatMessage = false;  // Track if there's a non-tapback message for notifications
+
     for (const msg of newMessages) {
         if (!existingIds.has(msg.rowid)) {
             allMessages.push(msg);
             hasNewMessages = true;
+
+            // Check if this is a real message (not tapback) for notification purposes
+            if (!msg.tapback_type && !msg.is_from_me) {
+                newChatMessage = true;
+            }
         }
     }
 
@@ -342,6 +497,37 @@ function appendMessages(newMessages) {
     // Show indicator if new messages arrived and user is scrolled up
     if (hasNewMessages && userHasScrolledUp) {
         showNewMessageIndicator();
+    }
+
+    // Send browser notification for new messages if enabled
+    if (newChatMessage && notificationsEnabled && document.hidden) {
+        sendNotification(newMessages);
+    }
+
+    // Move this chat to top of list
+    if (hasNewMessages && currentChatId) {
+        moveChatToTop(currentChatId);
+    }
+}
+
+// Browser notifications
+function sendNotification(messages) {
+    if (!('Notification' in window)) return;
+
+    // Find first real message (not tapback)
+    const realMessage = messages.find(m => !m.tapback_type && !m.is_from_me);
+    if (!realMessage) return;
+
+    if (Notification.permission === 'granted') {
+        const senderName = realMessage.contact?.name || realMessage.handle_id || 'Unknown';
+        const text = realMessage.text || 'New message';
+        new Notification(senderName, {
+            body: text.substring(0, 100),
+            icon: realMessage.contact?.image_url || undefined,
+            tag: 'imessage-' + currentChatId  // Replace previous notification from same chat
+        });
+    } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission();
     }
 }
 
@@ -476,22 +662,39 @@ function getMessageSenderHtml(msg) {
     `;
 }
 
-function messageHtml(msg) {
-    const cls = msg.is_from_me ? 'from-me' : 'from-them';
+// Render tapback annotations for a message
+function renderTapbacks(tapbacks) {
+    if (!tapbacks || tapbacks.length === 0) return '';
 
-    // Handle tapback reactions - render as small inline reaction
-    if (msg.tapback_type) {
-        const emoji = TAPBACK_EMOJI[msg.tapback_type] || msg.tapback_type;
-        return `
-            <div class="message tapback ${cls}">
-                <span class="tapback-emoji">${emoji}</span>
-            </div>
-        `;
+    // Group tapbacks by type and count
+    const tapbackCounts = {};
+    for (const tb of tapbacks) {
+        const emoji = TAPBACK_EMOJI[tb.type] || tb.type;
+        if (!tapbackCounts[emoji]) {
+            tapbackCounts[emoji] = { count: 0, fromMe: false };
+        }
+        tapbackCounts[emoji].count++;
+        if (tb.is_from_me) {
+            tapbackCounts[emoji].fromMe = true;
+        }
     }
+
+    const items = Object.entries(tapbackCounts).map(([emoji, info]) => {
+        const countStr = info.count > 1 ? ` ${info.count}` : '';
+        const fromMeClass = info.fromMe ? ' tapback-from-me' : '';
+        return `<span class="tapback-annotation${fromMeClass}">${emoji}${countStr}</span>`;
+    });
+
+    return `<div class="tapback-annotations">${items.join('')}</div>`;
+}
+
+function messageHtml(msg, tapbacks = []) {
+    const cls = msg.is_from_me ? 'from-me' : 'from-them';
 
     const text = msg.text || '';
     const attachmentsHtml = renderAttachments(msg.attachments);
     const senderHtml = getMessageSenderHtml(msg);
+    const tapbacksHtml = renderTapbacks(tapbacks);
 
     // If we only have attachments and no text, don't show empty text bubble
     if (!text && attachmentsHtml) {
@@ -500,6 +703,7 @@ function messageHtml(msg) {
                 ${senderHtml}
                 <div class="message ${cls}">
                     ${attachmentsHtml}
+                    ${tapbacksHtml}
                 </div>
             </div>
         `;
@@ -511,6 +715,7 @@ function messageHtml(msg) {
             <div class="message ${cls}">
                 ${text ? `<div class="text">${escapeHtml(text)}</div>` : ''}
                 ${attachmentsHtml}
+                ${tapbacksHtml}
             </div>
         </div>
     `;
@@ -657,6 +862,9 @@ function applyConfig(config) {
 
     // Update contact cache TTL
     contactCacheTtl = config.contact_cache_ttl || 86400;
+
+    // Apply notification setting
+    notificationsEnabled = config.notifications_enabled !== false;  // Default true
 }
 
 async function openSettings() {
@@ -665,6 +873,13 @@ async function openSettings() {
     settingVimBindings.checked = currentConfig.vim_bindings || false;
     settingCustomCss.value = currentConfig.custom_css || '';
     settingApiToken.value = currentConfig.api_token || '';
+
+    // Populate notification setting if element exists
+    const settingNotifications = document.getElementById('setting-notifications');
+    if (settingNotifications) {
+        settingNotifications.checked = currentConfig.notifications_enabled !== false;
+    }
+
     settingsModal.classList.remove('hidden');
 
     // Fetch health status for about section
@@ -722,11 +937,14 @@ function closeSettings() {
 }
 
 async function saveSettings() {
+    const settingNotifications = document.getElementById('setting-notifications');
+
     const updates = {
         prevent_sleep: settingPreventSleep.checked,
         vim_bindings: settingVimBindings.checked,
         custom_css: settingCustomCss.value,
-        api_token: settingApiToken.value
+        api_token: settingApiToken.value,
+        notifications_enabled: settingNotifications ? settingNotifications.checked : true
     };
 
     try {
@@ -891,6 +1109,17 @@ function handleVimKeydown(e) {
 
 // Attach vim keydown handler to message input
 messageInput.addEventListener('keydown', handleVimKeydown);
+
+// Request notification permission on load
+if ('Notification' in window && Notification.permission === 'default') {
+    // Don't request immediately - wait for user interaction
+    document.addEventListener('click', function requestNotificationPermission() {
+        if (Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+        document.removeEventListener('click', requestNotificationPermission);
+    }, { once: true });
+}
 
 // Initial load
 loadConfig();
