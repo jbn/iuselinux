@@ -1,11 +1,11 @@
-# iMessage Gateway
+# iuselinux
 
 A web interface for reading and sending iMessages on macOS.
 
 ## Installation
 
 ```bash
-uv pip install -e .
+uv pip install iuselinux
 ```
 
 For development (includes pytest):
@@ -19,7 +19,7 @@ uv pip install -e ".[dev]"
 Start the server:
 
 ```bash
-imessage-gateway
+iuselinux
 ```
 
 Or run directly with uvicorn:

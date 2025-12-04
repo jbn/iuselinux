@@ -19,7 +19,7 @@ from imessage_gateway.config import (
 @pytest.fixture
 def temp_config_dir(tmp_path):
     """Use a temporary directory for config files during tests."""
-    config_dir = tmp_path / "imessage-gateway"
+    config_dir = tmp_path / "iuselinux"
     config_file = config_dir / "config.json"
 
     with patch("imessage_gateway.config.CONFIG_DIR", config_dir), \

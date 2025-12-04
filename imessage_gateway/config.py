@@ -1,7 +1,7 @@
-"""Configuration management for iMessage Gateway.
+"""Configuration management for iuselinux.
 
 Stores configuration in macOS user configuration directory:
-~/Library/Application Support/imessage-gateway/config.json
+~/Library/Application Support/iuselinux/config.json
 """
 
 import json
@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 # macOS user config directory
-CONFIG_DIR = Path.home() / "Library" / "Application Support" / "imessage-gateway"
+CONFIG_DIR = Path.home() / "Library" / "Application Support" / "iuselinux"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 # Default configuration values
