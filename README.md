@@ -272,10 +272,22 @@ The macOS AddressBook is stored in a SQLite database at:
 This database is accessible via **Full Disk Access** - the same permission already required for reading the iMessage database (`~/Library/Messages/chat.db`).
 
 **Key tables:**
-- `ZABCDRECORD` - Contact records (first name, last name, nickname)
+- `ZABCDRECORD` - Contact records (first name, last name, nickname, thumbnail image)
 - `ZABCDPHONENUMBER` - Phone numbers linked to contacts via `ZOWNER` foreign key
 - `ZABCDEMAILADDRESS` - Email addresses linked to contacts via `ZOWNER` foreign key
-- `ZABCDLIKENESS` - Contact photos (binary blob in `ZDATA` column)
+
+**Contact photos:**
+
+Contact photos are stored in `ZABCDRECORD.ZTHUMBNAILIMAGEDATA` with a prefix byte indicating storage format:
+- `0x01` prefix: Inline JPEG data (remaining bytes are the JPEG image)
+- `0x02` prefix: UUID reference to external file (remaining bytes are null-terminated UUID string)
+
+For `0x02` references, the actual image is stored as a JPEG file in:
+```
+~/Library/Application Support/AddressBook/Sources/*/.AddressBook-v22_SUPPORT/_EXTERNAL_DATA/<UUID>
+```
+
+Note: The older `ZABCDLIKENESS` table is typically empty on modern macOS versions.
 
 **Phone number matching:**
 ```sql

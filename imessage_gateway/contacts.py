@@ -80,6 +80,55 @@ def _compute_full_name(given_name: str | None, family_name: str | None) -> str |
     return " ".join(parts) if parts else None
 
 
+def _get_external_data_dir() -> Path | None:
+    """Get the _EXTERNAL_DATA directory for contact images."""
+    db_path = _get_db_path()
+    if not db_path:
+        return None
+    # _EXTERNAL_DATA is at: Sources/<uuid>/.AddressBook-v22_SUPPORT/_EXTERNAL_DATA/
+    external_dir = db_path.parent / ".AddressBook-v22_SUPPORT" / "_EXTERNAL_DATA"
+    return external_dir if external_dir.exists() else None
+
+
+def _extract_image_data(thumbnail_data: bytes | None) -> tuple[bool, str | None]:
+    """
+    Extract image data from ZTHUMBNAILIMAGEDATA.
+
+    The thumbnail data uses a prefix byte to indicate storage format:
+    - 0x01: Inline JPEG data (remaining bytes are the JPEG)
+    - 0x02: UUID reference to external file in _EXTERNAL_DATA directory
+
+    Returns:
+        Tuple of (has_image, image_base64)
+    """
+    if not thumbnail_data or len(thumbnail_data) < 2:
+        return False, None
+
+    prefix = thumbnail_data[0]
+
+    if prefix == 0x01:
+        # Inline JPEG data - skip the 1-byte prefix
+        return True, base64.b64encode(thumbnail_data[1:]).decode("ascii")
+    elif prefix == 0x02:
+        # UUID reference to external file
+        # Strip null terminator if present
+        uuid_ref = thumbnail_data[1:].decode("ascii", errors="ignore").rstrip("\x00")
+        external_dir = _get_external_data_dir()
+        if external_dir:
+            image_path = external_dir / uuid_ref
+            if image_path.exists():
+                try:
+                    image_data = image_path.read_bytes()
+                    return True, base64.b64encode(image_data).decode("ascii")
+                except (OSError, IOError) as e:
+                    logger.warning("Failed to read external image %s: %s", uuid_ref, e)
+        return False, None
+    else:
+        # Unknown prefix - try treating as inline data (legacy format)
+        logger.debug("Unknown thumbnail prefix: 0x%02x", prefix)
+        return False, None
+
+
 def _lookup_by_phone(conn: sqlite3.Connection, phone: str) -> ContactInfo | None:
     """Look up a contact by phone number."""
     normalized = _normalize_phone(phone)
@@ -88,9 +137,10 @@ def _lookup_by_phone(conn: sqlite3.Connection, phone: str) -> ContactInfo | None
 
     # Query for contacts with matching phone numbers
     # Match by suffix to handle country code differences
+    # Also fetch ZTHUMBNAILIMAGEDATA directly from ZABCDRECORD
     cursor = conn.execute(
         """
-        SELECT r.ZFIRSTNAME, r.ZLASTNAME, r.ZNICKNAME, r.Z_PK
+        SELECT r.ZFIRSTNAME, r.ZLASTNAME, r.ZNICKNAME, r.Z_PK, r.ZTHUMBNAILIMAGEDATA
         FROM ZABCDRECORD r
         JOIN ZABCDPHONENUMBER p ON p.ZOWNER = r.Z_PK
         WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(p.ZFULLNUMBER, ' ', ''), '-', ''), '(', ''), ')', ''), '+', '') LIKE ?
@@ -103,21 +153,10 @@ def _lookup_by_phone(conn: sqlite3.Connection, phone: str) -> ContactInfo | None
     if not row:
         return None
 
-    given_name, family_name, nickname, record_pk = row
+    given_name, family_name, nickname, record_pk, thumbnail_data = row
 
-    # Check for contact image
-    image_base64 = None
-    has_image = False
-    img_cursor = conn.execute(
-        """
-        SELECT ZDATA FROM ZABCDLIKENESS WHERE ZOWNER = ? LIMIT 1
-        """,
-        (record_pk,),
-    )
-    img_row = img_cursor.fetchone()
-    if img_row and img_row[0]:
-        has_image = True
-        image_base64 = base64.b64encode(img_row[0]).decode("ascii")
+    # Extract image data (handles both inline and external storage)
+    has_image, image_base64 = _extract_image_data(thumbnail_data)
 
     return ContactInfo(
         handle=phone,
@@ -135,7 +174,7 @@ def _lookup_by_email(conn: sqlite3.Connection, email: str) -> ContactInfo | None
     """Look up a contact by email address."""
     cursor = conn.execute(
         """
-        SELECT r.ZFIRSTNAME, r.ZLASTNAME, r.ZNICKNAME, r.Z_PK
+        SELECT r.ZFIRSTNAME, r.ZLASTNAME, r.ZNICKNAME, r.Z_PK, r.ZTHUMBNAILIMAGEDATA
         FROM ZABCDRECORD r
         JOIN ZABCDEMAILADDRESS e ON e.ZOWNER = r.Z_PK
         WHERE LOWER(e.ZADDRESS) = LOWER(?)
@@ -147,21 +186,10 @@ def _lookup_by_email(conn: sqlite3.Connection, email: str) -> ContactInfo | None
     if not row:
         return None
 
-    given_name, family_name, nickname, record_pk = row
+    given_name, family_name, nickname, record_pk, thumbnail_data = row
 
-    # Check for contact image
-    image_base64 = None
-    has_image = False
-    img_cursor = conn.execute(
-        """
-        SELECT ZDATA FROM ZABCDLIKENESS WHERE ZOWNER = ? LIMIT 1
-        """,
-        (record_pk,),
-    )
-    img_row = img_cursor.fetchone()
-    if img_row and img_row[0]:
-        has_image = True
-        image_base64 = base64.b64encode(img_row[0]).decode("ascii")
+    # Extract image data (handles both inline and external storage)
+    has_image, image_base64 = _extract_image_data(thumbnail_data)
 
     return ContactInfo(
         handle=email,

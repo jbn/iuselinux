@@ -38,7 +38,8 @@ def mock_addressbook_db():
             Z_PK INTEGER PRIMARY KEY,
             ZFIRSTNAME VARCHAR,
             ZLASTNAME VARCHAR,
-            ZNICKNAME VARCHAR
+            ZNICKNAME VARCHAR,
+            ZTHUMBNAILIMAGEDATA BLOB
         )
     """)
     conn.execute("""
@@ -55,21 +56,15 @@ def mock_addressbook_db():
             ZADDRESS VARCHAR
         )
     """)
-    conn.execute("""
-        CREATE TABLE ZABCDLIKENESS (
-            Z_PK INTEGER PRIMARY KEY,
-            ZOWNER INTEGER,
-            ZDATA BLOB
-        )
-    """)
 
     # Insert test contacts
-    conn.execute("INSERT INTO ZABCDRECORD (Z_PK, ZFIRSTNAME, ZLASTNAME, ZNICKNAME) VALUES (1, 'John', 'Doe', 'JD')")
+    # ZTHUMBNAILIMAGEDATA has a 1-byte prefix before the JPEG data
+    # X'01' prefix + X'FFD8FFE0' (JPEG magic bytes)
+    conn.execute("INSERT INTO ZABCDRECORD (Z_PK, ZFIRSTNAME, ZLASTNAME, ZNICKNAME, ZTHUMBNAILIMAGEDATA) VALUES (1, 'John', 'Doe', 'JD', X'01FFD8FFE0')")
     conn.execute("INSERT INTO ZABCDPHONENUMBER (ZOWNER, ZFULLNUMBER) VALUES (1, '+1 (555) 123-4567')")
     conn.execute("INSERT INTO ZABCDEMAILADDRESS (ZOWNER, ZADDRESS) VALUES (1, 'john@example.com')")
-    conn.execute("INSERT INTO ZABCDLIKENESS (ZOWNER, ZDATA) VALUES (1, X'89504E47')")  # PNG header bytes
 
-    conn.execute("INSERT INTO ZABCDRECORD (Z_PK, ZFIRSTNAME, ZLASTNAME, ZNICKNAME) VALUES (2, 'Jane', 'Smith', NULL)")
+    conn.execute("INSERT INTO ZABCDRECORD (Z_PK, ZFIRSTNAME, ZLASTNAME, ZNICKNAME, ZTHUMBNAILIMAGEDATA) VALUES (2, 'Jane', 'Smith', NULL, NULL)")
     conn.execute("INSERT INTO ZABCDPHONENUMBER (ZOWNER, ZFULLNUMBER) VALUES (2, '2025551234')")
 
     conn.commit()
