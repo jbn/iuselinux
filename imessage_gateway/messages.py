@@ -425,6 +425,9 @@ def search_messages(
         cur = conn.cursor()
 
         # Base query with handle join - search in both text and attributedBody
+        # Note: attributedBody is a blob containing NSAttributedString data.
+        # LIKE doesn't work on blobs, but instr() does (finds substring in blob).
+        # This allows finding messages where text is NULL but content exists in attributedBody.
         sql = """
         SELECT
             message.ROWID as rowid,
@@ -441,12 +444,12 @@ def search_messages(
         FROM message
         LEFT JOIN handle ON message.handle_id = handle.ROWID
         LEFT JOIN chat_message_join ON message.ROWID = chat_message_join.message_id
-        WHERE (message.text LIKE ? OR message.text LIKE ?)
+        WHERE (message.text LIKE ? OR instr(message.attributedBody, ?) > 0)
         """
 
-        # Use wildcards for LIKE matching (case-insensitive in SQLite by default)
+        # Use wildcards for LIKE matching on text field, plain string for instr on blob
         search_pattern = f"%{query}%"
-        params: list = [search_pattern, search_pattern]
+        params: list = [search_pattern, query]
 
         if chat_id is not None:
             sql += " AND chat_message_join.chat_id = ?"
