@@ -960,7 +960,6 @@ class ConfigResponse(BaseModel):
 
     custom_css: str = ""
     prevent_sleep: bool = True
-    vim_bindings: bool = False
     api_token: str = ""
     contact_cache_ttl: int = 86400  # seconds
     log_level: str = "WARNING"
@@ -973,7 +972,6 @@ class ConfigUpdateRequest(BaseModel):
 
     custom_css: str | None = None
     prevent_sleep: bool | None = None
-    vim_bindings: bool | None = None
     api_token: str | None = None
     contact_cache_ttl: int | None = None
     log_level: str | None = None

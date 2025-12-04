@@ -16,11 +16,11 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 DEFAULTS: dict[str, Any] = {
     "custom_css": "",
     "prevent_sleep": True,  # Keep Mac awake while server is running
-    "vim_bindings": False,
     "api_token": "",  # Empty means no authentication required
     "contact_cache_ttl": 86400,  # Contact cache TTL in seconds (default 24 hours)
     "log_level": "WARNING",  # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
     "notifications_enabled": True,  # Browser notifications for new messages
+    "theme": "auto",  # Theme: "auto" (system preference), "light", or "dark"
 }
 
 
