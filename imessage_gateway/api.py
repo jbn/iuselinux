@@ -65,9 +65,29 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Serve static files
+# Static files directory
 static_dir = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+# Files that should never be cached (for development and releases)
+NO_CACHE_FILES = {"index.html", "app.js", "styles.css"}
+
+
+@app.get("/static/{file_path:path}")
+def serve_static(file_path: str) -> FileResponse:
+    """Serve static files with appropriate cache headers."""
+    full_path = static_dir / file_path
+    if not full_path.exists() or not full_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Determine cache headers based on file
+    filename = full_path.name
+    if filename in NO_CACHE_FILES:
+        headers = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+    else:
+        # Cache other static assets (images, fonts, etc.) for 1 day
+        headers = {"Cache-Control": "public, max-age=86400"}
+
+    return FileResponse(full_path, headers=headers)
 
 # Authentication
 security = HTTPBearer(auto_error=False)
