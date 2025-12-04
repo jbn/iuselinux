@@ -103,10 +103,36 @@ body {
 
 .sidebar {
     width: 280px;
+    min-width: 200px;
+    max-width: 50vw;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-primary);
     display: flex;
     flex-direction: column;
+    position: relative;
+    flex-shrink: 0;
+}
+
+/* Sidebar resize handle */
+.sidebar-resize {
+    position: absolute;
+    top: 0;
+    right: -4px;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+}
+
+.sidebar-resize:hover,
+.sidebar-resize.dragging {
+    background: var(--accent);
+    opacity: 0.3;
+}
+
+body.resizing-sidebar {
+    cursor: col-resize;
+    user-select: none;
 }
 
 .sidebar-header {
@@ -366,11 +392,24 @@ body {
 }
 
 .message {
-    max-width: 70%;
+    max-width: min(70%, 500px);
     padding: 10px 14px;
     border-radius: 18px;
     line-height: 1.4;
     word-wrap: break-word;
+}
+
+/* Responsive message widths based on main area width */
+@media (max-width: 600px) {
+    .message {
+        max-width: 85%;
+    }
+}
+
+@media (min-width: 1200px) {
+    .message {
+        max-width: min(60%, 600px);
+    }
 }
 
 .message.from-me {
@@ -389,7 +428,19 @@ body {
 .message-wrapper {
     display: flex;
     flex-direction: column;
-    max-width: 70%;
+    max-width: min(70%, 500px);
+}
+
+@media (max-width: 600px) {
+    .message-wrapper {
+        max-width: 85%;
+    }
+}
+
+@media (min-width: 1200px) {
+    .message-wrapper {
+        max-width: min(60%, 600px);
+    }
 }
 
 .message-wrapper.from-me {
