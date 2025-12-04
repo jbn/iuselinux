@@ -20,6 +20,8 @@ const customCssStyle = document.getElementById('custom-css');
 let currentChatId = null;
 let currentRecipient = null;
 let websocket = null;
+let globalWebsocket = null;  // Global WebSocket to monitor all chats
+let globalLastRowid = 0;     // Track last rowid for global WebSocket
 let lastMessageId = 0;
 let oldestMessageId = null;  // Track oldest message for backward pagination
 let allMessages = [];  // Store all messages for current chat
@@ -1107,6 +1109,78 @@ function connectWebSocket() {
     websocket = ws;
 }
 
+// Global WebSocket to monitor all chats for new messages
+// This updates the chat list when messages arrive for other chats
+function connectGlobalWebSocket() {
+    if (globalWebsocket) {
+        globalWebsocket.onclose = null;
+        globalWebsocket.close();
+        globalWebsocket = null;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    // No chat_id filter - monitor ALL messages
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+        console.log('Global WebSocket connected');
+        if (globalLastRowid > 0) {
+            ws.send(JSON.stringify({
+                type: 'set_after_rowid',
+                rowid: globalLastRowid
+            }));
+        }
+    };
+
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'messages' && data.data.length > 0) {
+            globalLastRowid = data.last_rowid;
+
+            // Check if any message is for a different chat than current
+            const hasOtherChatMessage = data.data.some(msg => msg.chat_id !== currentChatId);
+
+            if (hasOtherChatMessage) {
+                // Refresh chat list to show new/updated chats
+                refreshChatList();
+            }
+        }
+    };
+
+    ws.onclose = () => {
+        console.log('Global WebSocket closed, reconnecting in 3s...');
+        if (globalWebsocket === ws) {
+            globalWebsocket = null;
+            setTimeout(() => {
+                if (!globalWebsocket) {
+                    connectGlobalWebSocket();
+                }
+            }, 3000);
+        }
+    };
+
+    ws.onerror = (err) => {
+        console.error('Global WebSocket error:', err);
+    };
+
+    globalWebsocket = ws;
+}
+
+// Refresh chat list while preserving current selection
+async function refreshChatList() {
+    try {
+        const res = await fetch('/chats?limit=100');
+        const chats = await res.json();
+        allChats = chats;
+        renderChats(chats);
+    } catch (err) {
+        console.error('Failed to refresh chats:', err);
+    }
+}
+
 sendForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const text = messageInput.value.trim();
@@ -2122,3 +2196,4 @@ selectChat = function(item) {
 // Initial load
 loadConfig();
 loadChats();
+connectGlobalWebSocket();
