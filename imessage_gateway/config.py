@@ -21,6 +21,10 @@ DEFAULTS: dict[str, Any] = {
     "log_level": "WARNING",  # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
     "notifications_enabled": True,  # Browser notifications for new messages
     "theme": "auto",  # Theme: "auto" (system preference), "light", or "dark"
+    # Advanced settings
+    "thumbnail_cache_ttl": 86400,  # Video thumbnail cache TTL in seconds (default 24 hours)
+    "thumbnail_timestamp": 3.0,  # Seconds into video for thumbnail extraction
+    "websocket_poll_interval": 1.0,  # Seconds between WebSocket database polls
 }
 
 

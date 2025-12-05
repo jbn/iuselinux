@@ -45,7 +45,6 @@ FFPROBE_AVAILABLE = _check_ffprobe()
 # Thumbnail cache directory (thumbnails are small, worth caching on disk)
 CACHE_DIR = Path(tempfile.gettempdir()) / "imessage_gateway_cache"
 CACHE_DIR.mkdir(exist_ok=True)
-THUMBNAIL_CACHE_TTL = 24 * 60 * 60  # 24 hours in seconds
 
 
 # Rate limiting for send endpoint
@@ -741,18 +740,23 @@ def _get_cache_key(file_path: Path, suffix: str) -> str:
     return hashlib.md5(key_data.encode()).hexdigest()
 
 
-def _is_cache_valid(cache_path: Path, ttl: int = THUMBNAIL_CACHE_TTL) -> bool:
+def _is_cache_valid(cache_path: Path, ttl: int | None = None) -> bool:
     """Check if a cached file exists and is still valid."""
     if not cache_path.exists():
         return False
+    if ttl is None:
+        ttl = int(get_config_value("thumbnail_cache_ttl"))
     age = time.time() - cache_path.stat().st_mtime
     return age < ttl
 
 
-def _extract_thumbnail(file_path: Path, timestamp: float = 3.0) -> bytes | None:
+def _extract_thumbnail(file_path: Path, timestamp: float | None = None) -> bytes | None:
     """Extract a thumbnail frame from video at given timestamp."""
     if not FFMPEG_AVAILABLE:
         return None
+
+    if timestamp is None:
+        timestamp = float(get_config_value("thumbnail_timestamp"))
 
     try:
         # Get duration to ensure we don't seek past end
@@ -816,11 +820,12 @@ def get_attachment_thumbnail(attachment_id: int) -> FileResponse | StreamingResp
     cache_key = _get_cache_key(file_path, "thumb")
     cache_path = CACHE_DIR / f"{cache_key}.jpg"
 
-    if _is_cache_valid(cache_path, ttl=THUMBNAIL_CACHE_TTL):
+    thumbnail_cache_ttl = int(get_config_value("thumbnail_cache_ttl"))
+    if _is_cache_valid(cache_path, ttl=thumbnail_cache_ttl):
         return FileResponse(
             cache_path,
             media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=86400"},  # 24h browser cache
+            headers={"Cache-Control": f"public, max-age={thumbnail_cache_ttl}"},
         )
 
     # Extract thumbnail
@@ -834,7 +839,7 @@ def get_attachment_thumbnail(attachment_id: int) -> FileResponse | StreamingResp
     return StreamingResponse(
         io.BytesIO(thumbnail_data),
         media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=86400"},
+        headers={"Cache-Control": f"public, max-age={thumbnail_cache_ttl}"},
     )
 
 
@@ -1052,7 +1057,6 @@ def get_config_defaults() -> ConfigResponse:
 
 
 # WebSocket for real-time updates
-WEBSOCKET_POLL_INTERVAL = 1.0  # seconds between polls
 
 
 @app.websocket("/ws")
@@ -1074,6 +1078,9 @@ async def websocket_endpoint(
     """
     await websocket.accept()
     logger.info("WebSocket connected (chat_id=%s)", chat_id)
+
+    # Get poll interval from config
+    poll_interval = float(get_config_value("websocket_poll_interval"))
 
     # Start with the latest rowid (don't send historical messages)
     try:
@@ -1099,7 +1106,7 @@ async def websocket_endpoint(
             except Exception as e:
                 logger.error("WebSocket poll error: %s", e)
                 await websocket.send_json({"type": "error", "message": str(e)})
-                await asyncio.sleep(WEBSOCKET_POLL_INTERVAL)
+                await asyncio.sleep(poll_interval)
                 continue
 
             if new_messages:
@@ -1124,7 +1131,7 @@ async def websocket_endpoint(
             try:
                 data = await asyncio.wait_for(
                     websocket.receive_json(),
-                    timeout=WEBSOCKET_POLL_INTERVAL,
+                    timeout=poll_interval,
                 )
                 # Handle client commands
                 if data.get("type") == "set_after_rowid":
@@ -1144,9 +1151,14 @@ import signal
 import sys
 from types import FrameType
 
+import click
 
-def main() -> None:
-    """Run the iMessage Gateway server."""
+
+@click.command()
+@click.option("--host", default="127.0.0.1", help="Host to bind to")
+@click.option("--port", default=8000, help="Port to bind to")
+def main(host: str, port: int) -> None:
+    """Run the iuselinux server."""
     import uvicorn
 
     # Check if caffeinate is enabled in config
@@ -1184,7 +1196,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, cleanup)
 
     try:
-        uvicorn.run(app, host="127.0.0.1", port=8000)
+        uvicorn.run(app, host=host, port=port)
     finally:
         if caffeinate_proc:
             caffeinate_proc.terminate()
