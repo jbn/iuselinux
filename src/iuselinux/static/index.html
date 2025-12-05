@@ -39,9 +39,10 @@
             <div id="messages" class="messages"></div>
             <form id="send-form" class="send-form">
                 <div id="attachment-preview" class="attachment-preview hidden"></div>
-                <input type="file" id="file-input" class="hidden" accept="image/*,video/*,audio/*,.pdf">
-                <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off" disabled>
-                <button type="submit" id="send-btn" disabled>Send</button>
+                <div class="send-form-row">
+                    <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off" disabled>
+                    <button type="submit" id="send-btn" disabled>Send</button>
+                </div>
             </form>
         </main>
     </div>

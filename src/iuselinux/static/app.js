@@ -2418,7 +2418,6 @@ messagesDiv.addEventListener('click', (e) => {
 // Attachment Upload Feature (drag-drop only)
 // ==========================================
 
-const fileInput = document.getElementById('file-input');
 const attachmentPreview = document.getElementById('attachment-preview');
 
 // Store pending attachment
@@ -2452,7 +2451,6 @@ function clearAttachment() {
     pendingAttachment = null;
     attachmentPreview.innerHTML = '';
     attachmentPreview.classList.add('hidden');
-    fileInput.value = '';
     updateSendButtonState();
 }
 

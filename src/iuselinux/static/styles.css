@@ -1737,6 +1737,12 @@ body.resizing-sidebar {
     flex-direction: column;
 }
 
+.send-form-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
 .attachment-preview {
     display: flex;
     flex-wrap: wrap;
