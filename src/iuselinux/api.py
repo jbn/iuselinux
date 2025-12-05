@@ -90,27 +90,82 @@ def serve_static(file_path: str) -> FileResponse:
 
 
 # Config directory for user files (custom sounds, etc.)
-from .config import CONFIG_DIR
+from .config import CONFIG_DIR, _ensure_config_dir
+
+# Allowed audio file extensions
+ALLOWED_AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".m4a", ".aac"}
 
 
-@app.get("/notification-sound/{filename:path}")
-def serve_notification_sound(filename: str) -> FileResponse:
+def _get_custom_sound_path() -> Path | None:
+    """Find the custom notification sound file if it exists."""
+    for ext in ALLOWED_AUDIO_EXTENSIONS:
+        path = CONFIG_DIR / f"custom-sound{ext}"
+        if path.exists():
+            return path
+    return None
+
+
+def _delete_custom_sounds() -> None:
+    """Delete any existing custom sound files."""
+    for ext in ALLOWED_AUDIO_EXTENSIONS:
+        path = CONFIG_DIR / f"custom-sound{ext}"
+        if path.exists():
+            path.unlink()
+
+
+@app.get("/notification-sound")
+def serve_notification_sound() -> FileResponse:
     """Serve custom notification sound from user's config directory."""
-    # Sanitize filename to prevent path traversal
-    safe_filename = Path(filename).name
-    if not safe_filename or safe_filename != filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
+    sound_path = _get_custom_sound_path()
+    if not sound_path:
+        raise HTTPException(status_code=404, detail="No custom sound configured")
 
-    sound_path = CONFIG_DIR / safe_filename
-    if not sound_path.exists() or not sound_path.is_file():
-        raise HTTPException(status_code=404, detail="Sound file not found")
-
-    # Only allow audio files
     suffix = sound_path.suffix.lower()
-    if suffix not in {".mp3", ".wav", ".ogg", ".m4a", ".aac"}:
-        raise HTTPException(status_code=400, detail="Invalid audio format")
-
     return FileResponse(sound_path, media_type=f"audio/{suffix[1:]}")
+
+
+from fastapi import UploadFile, File
+
+
+@app.post("/notification-sound")
+async def upload_notification_sound(file: UploadFile = File(...)) -> dict:
+    """Upload a custom notification sound file."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    # Check file extension
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in ALLOWED_AUDIO_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid audio format. Allowed: {', '.join(ALLOWED_AUDIO_EXTENSIONS)}"
+        )
+
+    # Ensure config dir exists
+    _ensure_config_dir()
+
+    # Delete any existing custom sounds
+    _delete_custom_sounds()
+
+    # Save new sound file
+    dest_path = CONFIG_DIR / f"custom-sound{suffix}"
+    content = await file.read()
+
+    # Basic size limit (5MB)
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 5MB)")
+
+    with open(dest_path, "wb") as f:
+        f.write(content)
+
+    return {"success": True, "filename": f"custom-sound{suffix}"}
+
+
+@app.delete("/notification-sound")
+def delete_notification_sound() -> dict:
+    """Delete custom notification sound."""
+    _delete_custom_sounds()
+    return {"success": True}
 
 # Authentication
 security = HTTPBearer(auto_error=False)
@@ -1035,7 +1090,12 @@ class ConfigResponse(BaseModel):
     contact_cache_ttl: int = 86400  # seconds
     log_level: str = "WARNING"
     notifications_enabled: bool = True
+    notification_sound_enabled: bool = True
+    use_custom_notification_sound: bool = False
     theme: str = "auto"  # "auto", "light", or "dark"
+    thumbnail_cache_ttl: int = 86400
+    thumbnail_timestamp: float = 3.0
+    websocket_poll_interval: float = 1.0
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -1047,7 +1107,12 @@ class ConfigUpdateRequest(BaseModel):
     contact_cache_ttl: int | None = None
     log_level: str | None = None
     notifications_enabled: bool | None = None
+    notification_sound_enabled: bool | None = None
+    use_custom_notification_sound: bool | None = None
     theme: str | None = None
+    thumbnail_cache_ttl: int | None = None
+    thumbnail_timestamp: float | None = None
+    websocket_poll_interval: float | None = None
 
 
 @app.get("/config", response_model=ConfigResponse)

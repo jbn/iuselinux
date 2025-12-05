@@ -1613,3 +1613,35 @@ body.resizing-sidebar {
 .attachment-image img {
     cursor: zoom-in;
 }
+
+/* Custom sound upload controls */
+.custom-sound-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.custom-sound-status {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.custom-sound-status.has-sound {
+    color: var(--status-ok);
+}
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.btn-danger {
+    color: var(--status-error);
+}
+
+.btn-danger:hover {
+    background: var(--status-error);
+    color: white;
+}

@@ -1225,8 +1225,9 @@ function applyConfig(config) {
     notificationSoundEnabled = config.notification_sound_enabled !== false;  // Default true
 
     // Initialize or update notification audio
-    const customSound = config.custom_notification_sound || '';
-    const soundUrl = customSound ? `/notification-sound/${encodeURIComponent(customSound)}` : '/static/ding.mp3';
+    // Use custom sound if enabled and available, otherwise default
+    const useCustomSound = config.use_custom_notification_sound === true;
+    const soundUrl = useCustomSound ? '/notification-sound' : '/static/ding.mp3';
     if (!notificationAudio) {
         notificationAudio = new Audio(soundUrl);
         notificationAudio.volume = 0.5;
@@ -1257,12 +1258,12 @@ async function openSettings() {
 
     // Populate notification sound settings
     const settingNotificationSound = document.getElementById('setting-notification-sound');
-    const settingCustomNotificationSound = document.getElementById('setting-custom-notification-sound');
+    const settingUseCustomSound = document.getElementById('setting-use-custom-sound');
     if (settingNotificationSound) {
         settingNotificationSound.checked = currentConfig.notification_sound_enabled !== false;
     }
-    if (settingCustomNotificationSound) {
-        settingCustomNotificationSound.value = currentConfig.custom_notification_sound || '';
+    if (settingUseCustomSound) {
+        settingUseCustomSound.checked = currentConfig.use_custom_notification_sound === true;
     }
 
     // Populate theme setting
@@ -1286,6 +1287,9 @@ async function openSettings() {
     }
 
     settingsModal.classList.remove('hidden');
+
+    // Check if custom sound exists and update UI
+    await updateCustomSoundStatus();
 
     // Fetch health status for about section
     await updateHealthStatus();
@@ -1355,7 +1359,7 @@ function closeSettings() {
 async function saveSettings() {
     const settingNotifications = document.getElementById('setting-notifications');
     const settingNotificationSound = document.getElementById('setting-notification-sound');
-    const settingCustomNotificationSound = document.getElementById('setting-custom-notification-sound');
+    const settingUseCustomSound = document.getElementById('setting-use-custom-sound');
     const settingThumbnailCacheTtl = document.getElementById('setting-thumbnail-cache-ttl');
     const settingThumbnailTimestamp = document.getElementById('setting-thumbnail-timestamp');
     const settingWebsocketPollInterval = document.getElementById('setting-websocket-poll-interval');
@@ -1366,7 +1370,7 @@ async function saveSettings() {
         api_token: settingApiToken.value,
         notifications_enabled: settingNotifications ? settingNotifications.checked : true,
         notification_sound_enabled: settingNotificationSound ? settingNotificationSound.checked : true,
-        custom_notification_sound: settingCustomNotificationSound ? settingCustomNotificationSound.value : '',
+        use_custom_notification_sound: settingUseCustomSound ? settingUseCustomSound.checked : false,
         theme: settingTheme ? settingTheme.value : 'auto',
         // Advanced settings
         thumbnail_cache_ttl: settingThumbnailCacheTtl ? parseInt(settingThumbnailCacheTtl.value, 10) || 86400 : 86400,
@@ -1415,6 +1419,125 @@ document.addEventListener('keydown', (e) => {
         closeSettings();
     }
 });
+
+// Custom notification sound upload functionality
+async function updateCustomSoundStatus() {
+    const statusEl = document.getElementById('custom-sound-status');
+    const deleteBtn = document.getElementById('custom-sound-delete-btn');
+
+    if (!statusEl) return;
+
+    try {
+        // Check if custom sound exists using HEAD request
+        const res = await fetch('/notification-sound', { method: 'HEAD' });
+        if (res.ok) {
+            statusEl.textContent = 'Custom sound uploaded';
+            statusEl.classList.add('has-sound');
+            if (deleteBtn) deleteBtn.classList.remove('hidden');
+        } else {
+            statusEl.textContent = 'No custom sound';
+            statusEl.classList.remove('has-sound');
+            if (deleteBtn) deleteBtn.classList.add('hidden');
+        }
+    } catch (err) {
+        statusEl.textContent = 'No custom sound';
+        statusEl.classList.remove('has-sound');
+        if (deleteBtn) deleteBtn.classList.add('hidden');
+    }
+}
+
+async function uploadCustomSound(file) {
+    const statusEl = document.getElementById('custom-sound-status');
+
+    if (!file) return;
+
+    // Validate file size (5MB max)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+        alert('File too large. Maximum size is 5MB.');
+        return;
+    }
+
+    // Validate file type
+    const allowedTypes = ['.mp3', '.wav', '.ogg', '.m4a', '.aac'];
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (!allowedTypes.includes(ext)) {
+        alert('Invalid file type. Allowed: mp3, wav, ogg, m4a, aac');
+        return;
+    }
+
+    if (statusEl) {
+        statusEl.textContent = 'Uploading...';
+    }
+
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const res = await fetch('/notification-sound', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Upload failed');
+        }
+
+        await updateCustomSoundStatus();
+    } catch (err) {
+        console.error('Upload failed:', err);
+        alert('Failed to upload sound: ' + err.message);
+        await updateCustomSoundStatus();
+    }
+}
+
+async function deleteCustomSound() {
+    const statusEl = document.getElementById('custom-sound-status');
+
+    if (statusEl) {
+        statusEl.textContent = 'Deleting...';
+    }
+
+    try {
+        const res = await fetch('/notification-sound', { method: 'DELETE' });
+
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Delete failed');
+        }
+
+        await updateCustomSoundStatus();
+    } catch (err) {
+        console.error('Delete failed:', err);
+        alert('Failed to delete sound: ' + err.message);
+        await updateCustomSoundStatus();
+    }
+}
+
+// Custom sound upload event listeners
+const customSoundUploadBtn = document.getElementById('custom-sound-upload-btn');
+const customSoundDeleteBtn = document.getElementById('custom-sound-delete-btn');
+const customSoundFileInput = document.getElementById('setting-custom-sound-file');
+
+if (customSoundUploadBtn && customSoundFileInput) {
+    customSoundUploadBtn.addEventListener('click', () => {
+        customSoundFileInput.click();
+    });
+
+    customSoundFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            uploadCustomSound(file);
+        }
+        // Reset input so same file can be selected again
+        e.target.value = '';
+    });
+}
+
+if (customSoundDeleteBtn) {
+    customSoundDeleteBtn.addEventListener('click', deleteCustomSound);
+}
 
 // Request notification permission on load
 if ('Notification' in window && Notification.permission === 'default') {

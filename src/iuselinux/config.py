@@ -21,7 +21,7 @@ DEFAULTS: dict[str, Any] = {
     "log_level": "WARNING",  # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
     "notifications_enabled": True,  # Browser notifications for new messages
     "notification_sound_enabled": True,  # Play sound with notifications
-    "custom_notification_sound": "",  # Custom sound file path (empty = use default ding.mp3)
+    "use_custom_notification_sound": False,  # Use custom uploaded sound instead of default
     "theme": "auto",  # Theme: "auto" (system preference), "light", or "dark"
     # Advanced settings
     "thumbnail_cache_ttl": 86400,  # Video thumbnail cache TTL in seconds (default 24 hours)

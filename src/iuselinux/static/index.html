@@ -81,9 +81,21 @@
                         <p class="setting-description">Play a sound when new messages arrive</p>
                     </div>
                     <div class="setting-group">
-                        <label class="setting-label-block">Custom Sound Path</label>
-                        <p class="setting-description">Path to custom sound file (leave empty for default). Place files in ~/Library/Application Support/iuselinux/</p>
-                        <input type="text" id="setting-custom-notification-sound" placeholder="notification.mp3">
+                        <label class="setting-label">
+                            <input type="checkbox" id="setting-use-custom-sound">
+                            <span>Use Custom Sound</span>
+                        </label>
+                        <p class="setting-description">Use uploaded sound instead of default</p>
+                    </div>
+                    <div class="setting-group custom-sound-upload">
+                        <label class="setting-label-block">Custom Sound</label>
+                        <p class="setting-description">Upload a custom notification sound (mp3, wav, ogg, m4a, aac - max 5MB)</p>
+                        <div class="custom-sound-controls">
+                            <span id="custom-sound-status" class="custom-sound-status">No custom sound</span>
+                            <input type="file" id="setting-custom-sound-file" accept=".mp3,.wav,.ogg,.m4a,.aac" class="hidden">
+                            <button type="button" id="custom-sound-upload-btn" class="btn-secondary btn-small">Upload</button>
+                            <button type="button" id="custom-sound-delete-btn" class="btn-secondary btn-small btn-danger hidden">Delete</button>
+                        </div>
                     </div>
                     <div class="setting-group">
                         <label class="setting-label-block">Theme</label>
