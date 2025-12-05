@@ -6,10 +6,10 @@ from unittest.mock import patch, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from imessage_gateway.api import app, _classify_send_error, SendErrorType
-from imessage_gateway.messages import Chat, Message, Attachment
-from imessage_gateway.contacts import ContactInfo
-from imessage_gateway.sender import SendResult
+from iuselinux.api import app, _classify_send_error, SendErrorType
+from iuselinux.messages import Chat, Message, Attachment
+from iuselinux.contacts import ContactInfo
+from iuselinux.sender import SendResult
 
 
 # Test fixtures
@@ -73,8 +73,8 @@ class TestHealthEndpoint:
     """Tests for /health endpoint."""
 
     def test_health_returns_status(self, client):
-        with patch("imessage_gateway.api.check_db_access", return_value=True), \
-             patch("imessage_gateway.api.contacts_available", return_value=True):
+        with patch("iuselinux.api.check_db_access", return_value=True), \
+             patch("iuselinux.api.contacts_available", return_value=True):
             response = client.get("/health")
             assert response.status_code == 200
             data = response.json()
@@ -84,8 +84,8 @@ class TestHealthEndpoint:
             assert "contacts_available" in data
 
     def test_health_degraded_when_db_unavailable(self, client):
-        with patch("imessage_gateway.api.check_db_access", return_value=False), \
-             patch("imessage_gateway.api.contacts_available", return_value=False):
+        with patch("iuselinux.api.check_db_access", return_value=False), \
+             patch("iuselinux.api.contacts_available", return_value=False):
             response = client.get("/health")
             assert response.status_code == 200
             data = response.json()
@@ -97,8 +97,8 @@ class TestChatsEndpoint:
     """Tests for /chats endpoint."""
 
     def test_list_chats_returns_chats(self, client, mock_chats):
-        with patch("imessage_gateway.api.get_chats", return_value=mock_chats), \
-             patch("imessage_gateway.api.contacts_available", return_value=False):
+        with patch("iuselinux.api.get_chats", return_value=mock_chats), \
+             patch("iuselinux.api.contacts_available", return_value=False):
             response = client.get("/chats")
             assert response.status_code == 200
             data = response.json()
@@ -107,8 +107,8 @@ class TestChatsEndpoint:
             assert data[0]["display_name"] == "Test Chat 1"
 
     def test_list_chats_with_limit(self, client, mock_chats):
-        with patch("imessage_gateway.api.get_chats", return_value=mock_chats[:1]) as mock_get:
-            with patch("imessage_gateway.api.contacts_available", return_value=False):
+        with patch("iuselinux.api.get_chats", return_value=mock_chats[:1]) as mock_get:
+            with patch("iuselinux.api.contacts_available", return_value=False):
                 response = client.get("/chats?limit=1")
                 assert response.status_code == 200
                 mock_get.assert_called_once_with(limit=1)
@@ -118,8 +118,8 @@ class TestMessagesEndpoint:
     """Tests for /messages endpoint."""
 
     def test_list_messages_returns_messages(self, client, mock_messages):
-        with patch("imessage_gateway.api.get_messages", return_value=mock_messages), \
-             patch("imessage_gateway.api.contacts_available", return_value=False):
+        with patch("iuselinux.api.get_messages", return_value=mock_messages), \
+             patch("iuselinux.api.contacts_available", return_value=False):
             response = client.get("/messages?chat_id=1")
             assert response.status_code == 200
             data = response.json()
@@ -128,8 +128,8 @@ class TestMessagesEndpoint:
             assert data[0]["is_from_me"] is True
 
     def test_list_messages_with_filters(self, client, mock_messages):
-        with patch("imessage_gateway.api.get_messages", return_value=mock_messages) as mock_get:
-            with patch("imessage_gateway.api.contacts_available", return_value=False):
+        with patch("iuselinux.api.get_messages", return_value=mock_messages) as mock_get:
+            with patch("iuselinux.api.contacts_available", return_value=False):
                 response = client.get("/messages?chat_id=1&limit=50&after_rowid=99")
                 assert response.status_code == 200
                 mock_get.assert_called_once_with(chat_id=1, limit=50, after_rowid=99, before_rowid=None)
@@ -139,8 +139,8 @@ class TestPollEndpoint:
     """Tests for /poll endpoint."""
 
     def test_poll_returns_messages(self, client, mock_messages):
-        with patch("imessage_gateway.api.get_messages", return_value=mock_messages), \
-             patch("imessage_gateway.api.contacts_available", return_value=False):
+        with patch("iuselinux.api.get_messages", return_value=mock_messages), \
+             patch("iuselinux.api.contacts_available", return_value=False):
             response = client.get("/poll?after_rowid=50")
             assert response.status_code == 200
             data = response.json()
@@ -151,8 +151,8 @@ class TestPollEndpoint:
     def test_poll_detects_more_messages(self, client, mock_messages):
         # Return limit+1 messages to trigger has_more
         many_messages = mock_messages * 51
-        with patch("imessage_gateway.api.get_messages", return_value=many_messages), \
-             patch("imessage_gateway.api.contacts_available", return_value=False):
+        with patch("iuselinux.api.get_messages", return_value=many_messages), \
+             patch("iuselinux.api.contacts_available", return_value=False):
             response = client.get("/poll?after_rowid=0&limit=100")
             assert response.status_code == 200
             data = response.json()
@@ -163,7 +163,7 @@ class TestSendEndpoint:
     """Tests for /send endpoint."""
 
     def test_send_message_success(self, client):
-        with patch("imessage_gateway.api.send_imessage", return_value=SendResult(success=True)):
+        with patch("iuselinux.api.send_imessage", return_value=SendResult(success=True)):
             response = client.post(
                 "/send",
                 json={"recipient": "+15551234567", "message": "Test message"},
@@ -173,7 +173,7 @@ class TestSendEndpoint:
             assert data["success"] is True
 
     def test_send_message_failure(self, client):
-        with patch("imessage_gateway.api.send_imessage", return_value=SendResult(success=False, error="Can't get buddy")):
+        with patch("iuselinux.api.send_imessage", return_value=SendResult(success=False, error="Can't get buddy")):
             response = client.post(
                 "/send",
                 json={"recipient": "+15551234567", "message": "Test message"},
@@ -191,7 +191,7 @@ class TestSendEndpoint:
 
     def test_send_accepts_chat_guid(self, client):
         """Test that full chat GUIDs (for group chats) are accepted."""
-        with patch("imessage_gateway.api.send_imessage") as mock_send:
+        with patch("iuselinux.api.send_imessage") as mock_send:
             mock_send.return_value = SendResult(success=True)
             # Test iMessage group chat
             response = client.post(
@@ -203,7 +203,7 @@ class TestSendEndpoint:
 
     def test_send_accepts_sms_chat_guid(self, client):
         """Test that SMS chat GUIDs are accepted."""
-        with patch("imessage_gateway.api.send_imessage") as mock_send:
+        with patch("iuselinux.api.send_imessage") as mock_send:
             mock_send.return_value = SendResult(success=True)
             response = client.post(
                 "/send",
@@ -232,7 +232,7 @@ class TestConfigEndpoint:
     """Tests for /config endpoints."""
 
     def test_get_config_returns_settings(self, client):
-        with patch("imessage_gateway.api.get_config", return_value={
+        with patch("iuselinux.api.get_config", return_value={
             "custom_css": "",
             "prevent_sleep": True,
             "theme": "auto",
@@ -248,7 +248,7 @@ class TestConfigEndpoint:
             assert "log_level" in data
 
     def test_update_config(self, client):
-        with patch("imessage_gateway.api.update_config", return_value={
+        with patch("iuselinux.api.update_config", return_value={
             "custom_css": "",
             "prevent_sleep": False,
             "theme": "dark",

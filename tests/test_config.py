@@ -5,7 +5,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from imessage_gateway.config import (
+from iuselinux.config import (
     get_config,
     get_config_value,
     set_config_value,
@@ -22,8 +22,8 @@ def temp_config_dir(tmp_path):
     config_dir = tmp_path / "iuselinux"
     config_file = config_dir / "config.json"
 
-    with patch("imessage_gateway.config.CONFIG_DIR", config_dir), \
-         patch("imessage_gateway.config.CONFIG_FILE", config_file):
+    with patch("iuselinux.config.CONFIG_DIR", config_dir), \
+         patch("iuselinux.config.CONFIG_FILE", config_file):
         yield config_dir, config_file
 
 

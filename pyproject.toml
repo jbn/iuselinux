@@ -45,14 +45,14 @@ Repository = "https://github.com/jbn/iuselinux"
 Issues = "https://github.com/jbn/iuselinux/issues"
 
 [project.scripts]
-iuselinux = "imessage_gateway.api:main"
+iuselinux = "iuselinux.api:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["imessage_gateway"]
+packages = ["src/iuselinux"]
 
 [tool.mypy]
 python_version = "3.11"

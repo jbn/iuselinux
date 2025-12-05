@@ -2,7 +2,7 @@
 
 import pytest
 
-from imessage_gateway.db import extract_text_from_attributed_body
+from iuselinux.db import extract_text_from_attributed_body
 
 
 class TestExtractTextFromAttributedBody:
