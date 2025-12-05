@@ -1732,45 +1732,17 @@ body.resizing-sidebar {
     color: white;
 }
 
-/* Attachment upload UI */
-.send-form-row {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-.attach-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--accent);
-    padding: 8px;
-    border-radius: 50%;
-    transition: background 0.15s, color 0.15s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-.attach-btn:hover:not(:disabled) {
-    background: var(--bg-hover);
-}
-
-.attach-btn:disabled {
-    color: var(--accent-disabled);
-    cursor: not-allowed;
-}
-
-.attach-btn svg {
-    display: block;
+/* Attachment upload UI - iMessage style */
+.send-form {
+    flex-direction: column;
 }
 
 .attachment-preview {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    padding: 8px 8px 0 8px;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
 }
 
 .attachment-preview.hidden {
@@ -1782,31 +1754,38 @@ body.resizing-sidebar {
     border-radius: 12px;
     overflow: hidden;
     background: var(--bg-tertiary);
-    border: 1px solid var(--border-primary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .attachment-preview-item.image-preview {
-    max-width: 120px;
-    max-height: 120px;
+    max-width: 200px;
+    max-height: 200px;
 }
 
 .attachment-preview-item.image-preview img {
     display: block;
-    max-width: 120px;
-    max-height: 120px;
-    object-fit: cover;
+    max-width: 200px;
+    max-height: 200px;
+    object-fit: contain;
+    border-radius: 12px;
 }
 
 .attachment-preview-item.file-preview {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    max-width: 200px;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
 }
 
 .attachment-preview-item .file-icon {
-    font-size: 20px;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
     flex-shrink: 0;
 }
 
@@ -1816,7 +1795,7 @@ body.resizing-sidebar {
 }
 
 .attachment-preview-item .file-name {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     color: var(--text-primary);
     white-space: nowrap;
@@ -1825,18 +1804,18 @@ body.resizing-sidebar {
 }
 
 .attachment-preview-item .file-size {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-secondary);
 }
 
 .attachment-preview-remove {
     position: absolute;
-    top: 4px;
-    right: 4px;
-    width: 20px;
-    height: 20px;
+    top: 6px;
+    right: 6px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.5);
     color: white;
     border: none;
     cursor: pointer;
@@ -1850,59 +1829,21 @@ body.resizing-sidebar {
 }
 
 .attachment-preview-remove:hover {
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.7);
 }
 
-/* Drag & drop overlay */
-.drag-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 122, 255, 0.1);
-    border: 3px dashed var(--accent);
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-    pointer-events: none;
+/* Drag & drop - subtle highlight on input area */
+.send-form.drag-over {
+    background: rgba(0, 122, 255, 0.05);
 }
 
-.drag-overlay.hidden {
-    display: none;
-}
-
-.drag-overlay-text {
-    font-size: 18px;
-    font-weight: 500;
-    color: var(--accent);
-    padding: 20px;
-    background: var(--bg-secondary);
-    border-radius: 12px;
-    box-shadow: 0 4px 12px var(--shadow-modal);
-}
-
-/* Upload progress indicator */
-.attachment-upload-progress {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: var(--border-primary);
-    overflow: hidden;
-}
-
-.attachment-upload-progress-bar {
-    height: 100%;
-    background: var(--accent);
-    transition: width 0.2s ease-out;
+.send-form.drag-over #message-input {
+    border-color: var(--accent);
+    background: rgba(0, 122, 255, 0.02);
 }
 
 .attachment-preview-item.uploading {
-    opacity: 0.7;
+    opacity: 0.6;
 }
 
 .attachment-preview-item.uploading .attachment-preview-remove {

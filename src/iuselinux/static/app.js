@@ -2415,32 +2415,14 @@ messagesDiv.addEventListener('click', (e) => {
 });
 
 // ==========================================
-// Attachment Upload Feature
+// Attachment Upload Feature (drag-drop only)
 // ==========================================
 
-const attachBtn = document.getElementById('attach-btn');
 const fileInput = document.getElementById('file-input');
 const attachmentPreview = document.getElementById('attachment-preview');
 
 // Store pending attachment
 let pendingAttachment = null;
-
-// File type icons
-const FILE_TYPE_ICONS = {
-    'image': '🖼️',
-    'video': '🎬',
-    'audio': '🎵',
-    'application/pdf': '📄',
-    'default': '📎'
-};
-
-function getFileIcon(mimeType) {
-    if (!mimeType) return FILE_TYPE_ICONS.default;
-    if (mimeType.startsWith('image/')) return FILE_TYPE_ICONS.image;
-    if (mimeType.startsWith('video/')) return FILE_TYPE_ICONS.video;
-    if (mimeType.startsWith('audio/')) return FILE_TYPE_ICONS.audio;
-    return FILE_TYPE_ICONS[mimeType] || FILE_TYPE_ICONS.default;
-}
 
 function formatFileSize(bytes) {
     if (bytes < 1024) return bytes + ' B';
@@ -2490,10 +2472,9 @@ function renderAttachmentPreview(file) {
         img.onload = () => URL.revokeObjectURL(img.src);
         item.appendChild(img);
     } else {
-        // File preview with icon
+        // File preview with name and size
         item.classList.add('file-preview');
         item.innerHTML = `
-            <span class="file-icon">${getFileIcon(file.type)}</span>
             <div class="file-info">
                 <div class="file-name">${escapeHtml(file.name)}</div>
                 <div class="file-size">${formatFileSize(file.size)}</div>
@@ -2506,7 +2487,7 @@ function renderAttachmentPreview(file) {
     removeBtn.type = 'button';
     removeBtn.className = 'attachment-preview-remove';
     removeBtn.innerHTML = '×';
-    removeBtn.title = 'Remove attachment';
+    removeBtn.title = 'Remove';
     removeBtn.onclick = (e) => {
         e.preventDefault();
         clearAttachment();
@@ -2525,69 +2506,36 @@ function updateSendButtonState() {
     sendBtn.disabled = !(hasRecipient && (hasText || hasAttachment));
 }
 
-// Attach button click
-attachBtn.addEventListener('click', () => {
-    fileInput.click();
-});
-
-// File input change
-fileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (file) {
-        setAttachment(file);
-    }
-});
-
 // Update send button state on input
 messageInput.addEventListener('input', updateSendButtonState);
 
-// Drag and drop support
-const mainArea = document.querySelector('.main');
+// Drag and drop on input area
 let dragCounter = 0;
 
-function showDragOverlay() {
-    let overlay = document.getElementById('drag-overlay');
-    if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.id = 'drag-overlay';
-        overlay.className = 'drag-overlay';
-        overlay.innerHTML = '<div class="drag-overlay-text">Drop file to attach</div>';
-        mainArea.appendChild(overlay);
-    }
-    overlay.classList.remove('hidden');
-}
-
-function hideDragOverlay() {
-    const overlay = document.getElementById('drag-overlay');
-    if (overlay) {
-        overlay.classList.add('hidden');
-    }
-}
-
-mainArea.addEventListener('dragenter', (e) => {
+sendForm.addEventListener('dragenter', (e) => {
     e.preventDefault();
     if (!currentRecipient) return;
     dragCounter++;
-    showDragOverlay();
+    sendForm.classList.add('drag-over');
 });
 
-mainArea.addEventListener('dragleave', (e) => {
+sendForm.addEventListener('dragleave', (e) => {
     e.preventDefault();
     dragCounter--;
     if (dragCounter <= 0) {
         dragCounter = 0;
-        hideDragOverlay();
+        sendForm.classList.remove('drag-over');
     }
 });
 
-mainArea.addEventListener('dragover', (e) => {
+sendForm.addEventListener('dragover', (e) => {
     e.preventDefault();
 });
 
-mainArea.addEventListener('drop', (e) => {
+sendForm.addEventListener('drop', (e) => {
     e.preventDefault();
     dragCounter = 0;
-    hideDragOverlay();
+    sendForm.classList.remove('drag-over');
 
     if (!currentRecipient) return;
 
@@ -2607,7 +2555,6 @@ messageInput.addEventListener('paste', (e) => {
             e.preventDefault();
             const file = item.getAsFile();
             if (file) {
-                // Give it a meaningful name
                 const ext = file.type.split('/')[1] || 'png';
                 const namedFile = new File([file], `pasted-image.${ext}`, { type: file.type });
                 setAttachment(namedFile);
@@ -2626,10 +2573,8 @@ sendForm.addEventListener('submit', async (e) => {
     if (!text && !pendingAttachment) return;
 
     if (pendingAttachment) {
-        // Send with attachment
         await sendWithAttachment(currentRecipient, text || null, pendingAttachment);
     } else {
-        // Text-only send (existing flow)
         const pendingId = addPendingMessage(text, currentRecipient);
         messageInput.value = '';
         messageInput.focus();
@@ -2640,13 +2585,11 @@ sendForm.addEventListener('submit', async (e) => {
 });
 
 async function sendWithAttachment(recipient, message, file) {
-    // Show uploading state
     const previewItem = attachmentPreview.querySelector('.attachment-preview-item');
     if (previewItem) {
         previewItem.classList.add('uploading');
     }
 
-    // Create form data
     const formData = new FormData();
     formData.append('recipient', recipient);
     formData.append('file', file);
@@ -2672,7 +2615,6 @@ async function sendWithAttachment(recipient, message, file) {
             return;
         }
 
-        // Success - clear attachment and text
         clearAttachment();
         messageInput.value = '';
         messageInput.focus();
@@ -2686,17 +2628,11 @@ async function sendWithAttachment(recipient, message, file) {
     }
 }
 
-// Enable/disable attach button based on recipient selection
-function updateAttachButtonState() {
-    attachBtn.disabled = !currentRecipient;
-}
-
-// Patch selectChat to also update attach button
+// Clear attachment when switching chats
 const _originalSelectChat = selectChat;
 selectChat = function(item) {
     _originalSelectChat(item);
-    updateAttachButtonState();
-    clearAttachment();  // Clear attachment when switching chats
+    clearAttachment();
 };
 
 // Initial load
