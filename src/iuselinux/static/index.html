@@ -187,6 +187,26 @@
         </div>
     </div>
 
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="modal auth-modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="auth-modal-content">
+            <div class="auth-modal-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0110 0v4"/>
+                </svg>
+            </div>
+            <h2>Authentication Required</h2>
+            <p>This server requires an API token to access.</p>
+            <form id="auth-form">
+                <input type="password" id="auth-token-input" placeholder="Enter API token" autocomplete="current-password">
+                <p id="auth-error" class="auth-error hidden">Invalid token. Please try again.</p>
+                <button type="submit" class="btn-primary">Sign In</button>
+            </form>
+        </div>
+    </div>
+
     <!-- Image Lightbox Modal -->
     <div id="lightbox-modal" class="lightbox hidden">
         <div class="lightbox-backdrop"></div>

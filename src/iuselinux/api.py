@@ -55,7 +55,7 @@ _send_timestamps: deque[float] = deque()
 from .db import FullDiskAccessError, check_db_access
 from .messages import get_chats, get_messages, get_attachment, search_messages, Chat, Message, Attachment
 from .sender import send_imessage, send_imessage_with_file, SendResult
-from .config import get_config, get_config_value, update_config, DEFAULTS as CONFIG_DEFAULTS
+from .config import get_config, get_config_value, set_config_value, update_config, DEFAULTS as CONFIG_DEFAULTS
 from .contacts import resolve_contact, is_available as contacts_available, ContactInfo
 
 app = FastAPI(
@@ -1279,11 +1279,13 @@ def get_config_defaults() -> ConfigResponse:
 async def websocket_endpoint(
     websocket: WebSocket,
     chat_id: int | None = Query(default=None, description="Filter to specific chat"),
+    token: str | None = Query(default=None, description="API token for authentication"),
 ) -> None:
     """
     WebSocket endpoint for real-time message updates.
 
     Connect to /ws or /ws?chat_id=N to receive new messages as they arrive.
+    If API authentication is enabled, include ?token=YOUR_TOKEN.
 
     Messages sent to client:
     - {"type": "messages", "data": [...], "last_rowid": N} - new messages
@@ -1292,6 +1294,12 @@ async def websocket_endpoint(
     Client can send:
     - {"type": "set_after_rowid", "rowid": N} - set the starting rowid
     """
+    # Check authentication if enabled
+    api_token = get_config_value("api_token")
+    if api_token and token != api_token:
+        await websocket.close(code=4001, reason="API token required")
+        return
+
     await websocket.accept()
     logger.info("WebSocket connected (chat_id=%s)", chat_id)
 
@@ -1373,9 +1381,19 @@ import click
 @click.command()
 @click.option("--host", default="127.0.0.1", help="Host to bind to")
 @click.option("--port", default=8000, help="Port to bind to")
-def main(host: str, port: int) -> None:
+@click.option(
+    "--api-token",
+    default=None,
+    help="Set API token for authentication. If provided, overwrites any existing token.",
+)
+def main(host: str, port: int, api_token: str | None) -> None:
     """Run the iuselinux server."""
     import uvicorn
+
+    # Set API token if provided via CLI
+    if api_token is not None:
+        set_config_value("api_token", api_token)
+        print(f"API token set (length: {len(api_token)} chars)")
 
     # Check if caffeinate is enabled in config
     config = get_config()

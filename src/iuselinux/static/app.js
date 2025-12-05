@@ -27,6 +27,75 @@ let allMessages = [];  // Store all messages for current chat
 let currentConfig = {}; // Store current configuration
 let allChats = [];  // Store all chats for reordering
 
+// Auth modal elements
+const authModal = document.getElementById('auth-modal');
+const authForm = document.getElementById('auth-form');
+const authTokenInput = document.getElementById('auth-token-input');
+const authError = document.getElementById('auth-error');
+
+// Authenticated fetch wrapper - adds Bearer token if configured
+async function apiFetch(url, options = {}) {
+    const token = currentConfig.api_token;
+    if (token) {
+        options.headers = options.headers || {};
+        options.headers['Authorization'] = `Bearer ${token}`;
+    }
+    const res = await fetch(url, options);
+    if (res.status === 401) {
+        showAuthModal();
+        throw new Error('Authentication required');
+    }
+    return res;
+}
+
+// Show auth modal
+function showAuthModal() {
+    authModal.classList.remove('hidden');
+    authTokenInput.value = '';
+    authError.classList.add('hidden');
+    authTokenInput.focus();
+}
+
+// Hide auth modal
+function hideAuthModal() {
+    authModal.classList.add('hidden');
+}
+
+// Verify token by testing against an authenticated endpoint
+async function verifyToken(token) {
+    try {
+        const res = await fetch('/chats?limit=1', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+// Handle auth form submission
+if (authForm) {
+    authForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const token = authTokenInput.value.trim();
+        if (!token) return;
+
+        // Verify the token
+        const valid = await verifyToken(token);
+        if (valid) {
+            // Store token in config and reload
+            currentConfig.api_token = token;
+            hideAuthModal();
+            // Reload the app with auth
+            loadChats();
+            connectWebSocket();
+        } else {
+            authError.classList.remove('hidden');
+            authTokenInput.select();
+        }
+    });
+}
+
 // Pagination state
 const PAGE_SIZE = 20;
 let isLoadingOlder = false;
@@ -168,7 +237,7 @@ async function resolveContact(handle) {
     if (cached !== null) return cached;
 
     try {
-        const res = await fetch(`/contacts/${encodeURIComponent(handle)}`);
+        const res = await apiFetch(`/contacts/${encodeURIComponent(handle)}`);
         if (!res.ok) {
             // Cache negative result too (but shorter TTL)
             setCachedContact(handle, null, 300); // 5 min for 404s
@@ -214,7 +283,7 @@ function getContactInitials(contact, fallback) {
 
 async function loadChats() {
     try {
-        const res = await fetch('/chats?limit=100');
+        const res = await apiFetch('/chats?limit=100');
         const chats = await res.json();
         allChats = chats;
         renderChats(chats);
@@ -482,7 +551,7 @@ async function loadMessages() {
     try {
         // Load initial page of messages (most recent PAGE_SIZE)
         let url = `/messages?chat_id=${currentChatId}&limit=${PAGE_SIZE}`;
-        const res = await fetch(url);
+        const res = await apiFetch(url);
         const messages = await res.json();
         allMessages = messages;
 
@@ -513,7 +582,7 @@ async function loadOlderMessages() {
 
     try {
         const url = `/messages?chat_id=${currentChatId}&limit=${PAGE_SIZE}&before_rowid=${oldestMessageId}`;
-        const res = await fetch(url);
+        const res = await apiFetch(url);
         const olderMessages = await res.json();
 
         if (olderMessages.length > 0) {
@@ -766,7 +835,7 @@ function addPendingMessage(text, recipient) {
 // Async send that updates pending message status
 async function sendMessageAsync(recipient, text, pendingId) {
     try {
-        const res = await fetch('/send', {
+        const res = await apiFetch('/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ recipient, message: text })
@@ -1089,7 +1158,11 @@ function connectWebSocket() {
 
     // Build WebSocket URL - no chat_id filter, receive ALL messages
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    let wsUrl = `${protocol}//${window.location.host}/ws`;
+    // Add token for authentication if configured
+    if (currentConfig.api_token) {
+        wsUrl += `?token=${encodeURIComponent(currentConfig.api_token)}`;
+    }
 
     const ws = new WebSocket(wsUrl);
 
@@ -1173,7 +1246,7 @@ function connectWebSocket() {
 // Refresh chat list while preserving current selection
 async function refreshChatList() {
     try {
-        const res = await fetch('/chats?limit=100');
+        const res = await apiFetch('/chats?limit=100');
         const chats = await res.json();
         allChats = chats;
         renderChats(chats);
@@ -1366,7 +1439,7 @@ async function saveSettings() {
     };
 
     try {
-        const res = await fetch('/config', {
+        const res = await apiFetch('/config', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updates)
@@ -1416,7 +1489,7 @@ async function updateCustomSoundStatus() {
 
     try {
         // Check if custom sound exists using HEAD request
-        const res = await fetch('/notification-sound', { method: 'HEAD' });
+        const res = await apiFetch('/notification-sound', { method: 'HEAD' });
         if (res.ok) {
             statusEl.textContent = 'Custom sound uploaded';
             statusEl.classList.add('has-sound');
@@ -1461,7 +1534,7 @@ async function uploadCustomSound(file) {
         const formData = new FormData();
         formData.append('file', file);
 
-        const res = await fetch('/notification-sound', {
+        const res = await apiFetch('/notification-sound', {
             method: 'POST',
             body: formData
         });
@@ -1487,7 +1560,7 @@ async function deleteCustomSound() {
     }
 
     try {
-        const res = await fetch('/notification-sound', { method: 'DELETE' });
+        const res = await apiFetch('/notification-sound', { method: 'DELETE' });
 
         if (!res.ok) {
             const err = await res.json();
@@ -1690,7 +1763,7 @@ async function sendComposeMessage() {
     composeSend.disabled = true;
 
     try {
-        const res = await fetch('/send', {
+        const res = await apiFetch('/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ recipient, message })
@@ -1903,7 +1976,7 @@ async function performSearch(query) {
 
     try {
         const params = new URLSearchParams({ q: query, limit: '20', offset: '0' });
-        const res = await fetch(`/search?${params}`);
+        const res = await apiFetch(`/search?${params}`);
 
         if (!res.ok) {
             throw new Error('Search failed');
@@ -1930,7 +2003,7 @@ async function loadMoreSearchResults() {
             limit: '20',
             offset: searchOffset.toString()
         });
-        const res = await fetch(`/search?${params}`);
+        const res = await apiFetch(`/search?${params}`);
 
         if (!res.ok) throw new Error('Search failed');
 
@@ -2596,7 +2669,7 @@ async function sendWithAttachment(recipient, message, file) {
     }
 
     try {
-        const res = await fetch('/send-with-attachment', {
+        const res = await apiFetch('/send-with-attachment', {
             method: 'POST',
             body: formData
         });
@@ -2633,7 +2706,9 @@ selectChat = function(item) {
     clearAttachment();
 };
 
-// Initial load
-loadConfig();
-loadChats();
-connectWebSocket();  // Single WebSocket for all messages
+// Initial load - must wait for config to get API token before other calls
+(async function init() {
+    await loadConfig();
+    loadChats();
+    connectWebSocket();  // Single WebSocket for all messages
+})();
