@@ -391,12 +391,20 @@ body.resizing-sidebar {
     gap: 8px;
 }
 
+/* Add top margin to messages/wrappers that have tapbacks for spacing */
+.message:has(.tapback-annotations),
+.message-wrapper:has(.tapback-annotations) {
+    margin-top: 16px;
+}
+
 .message {
     max-width: min(70%, 500px);
     padding: 10px 14px;
     border-radius: 18px;
     line-height: 1.4;
     word-wrap: break-word;
+    position: relative;
+    overflow: visible;
 }
 
 /* Responsive message widths based on main area width */
@@ -416,12 +424,40 @@ body.resizing-sidebar {
     align-self: flex-end;
     background: var(--bg-message-sent);
     color: var(--text-message-sent);
+    border-bottom-right-radius: 4px;
+}
+
+/* Bubble tail for sent messages (bottom-right) */
+.message.from-me::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    right: -6px;
+    width: 12px;
+    height: 12px;
+    background: var(--bg-message-sent);
+    border-bottom-left-radius: 12px;
+    clip-path: polygon(0 0, 100% 100%, 0 100%);
 }
 
 .message.from-them {
     align-self: flex-start;
     background: var(--bg-message-received);
     color: var(--text-message-received);
+    border-bottom-left-radius: 4px;
+}
+
+/* Bubble tail for received messages (bottom-left) */
+.message.from-them::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: -6px;
+    width: 12px;
+    height: 12px;
+    background: var(--bg-message-received);
+    border-bottom-right-radius: 12px;
+    clip-path: polygon(100% 0, 100% 100%, 0 100%);
 }
 
 /* Message wrapper for sender info */
@@ -556,7 +592,7 @@ body.resizing-sidebar {
     padding: 40px;
 }
 
-/* Tapback reactions */
+/* Tapback reactions (standalone, not attached to messages) */
 .message.tapback {
     padding: 4px 8px;
     border-radius: 12px;
@@ -566,10 +602,17 @@ body.resizing-sidebar {
 
 .message.tapback.from-me {
     background: rgba(0, 122, 255, 0.1);
+    border-bottom-right-radius: 12px;
 }
 
 .message.tapback.from-them {
     background: var(--bg-tapback);
+    border-bottom-left-radius: 12px;
+}
+
+/* Hide bubble tails on standalone tapback messages */
+.message.tapback::after {
+    display: none;
 }
 
 .tapback-emoji {
@@ -1043,35 +1086,78 @@ body.resizing-sidebar {
     color: var(--accent);
 }
 
-/* Tapback annotations - iMessage style */
+/* Tapback annotations - iMessage floating bubble style */
 .tapback-annotations {
+    position: absolute;
     display: flex;
-    gap: 4px;
-    margin-top: 4px;
-    flex-wrap: wrap;
+    gap: 2px;
+    z-index: 10;
+}
+
+/* Position tapbacks at top-right for received messages */
+.message.from-them .tapback-annotations {
+    top: -12px;
+    right: -8px;
+}
+
+/* Position tapbacks at top-left for sent messages */
+.message.from-me .tapback-annotations {
+    top: -12px;
+    left: -8px;
 }
 
 .tapback-annotation {
     display: inline-flex;
     align-items: center;
-    background: var(--bg-tapback);
-    border-radius: 12px;
-    padding: 2px 6px;
+    justify-content: center;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
     font-size: 14px;
-    color: var(--text-primary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    position: relative;
 }
 
-.message.from-me .tapback-annotation {
-    background: var(--bg-tapback-sent);
-    color: var(--text-message-sent);
+/* Tapback bubble tail - points down-left for received messages */
+.message.from-them .tapback-annotation::after {
+    content: '';
+    position: absolute;
+    bottom: -4px;
+    left: 4px;
+    width: 8px;
+    height: 8px;
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border-primary);
+    border-radius: 0 0 0 8px;
+    clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+
+/* Tapback bubble tail - points down-right for sent messages */
+.message.from-me .tapback-annotation::after {
+    content: '';
+    position: absolute;
+    bottom: -4px;
+    right: 4px;
+    width: 8px;
+    height: 8px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border-primary);
+    border-radius: 0 0 8px 0;
+    clip-path: polygon(100% 0, 100% 100%, 0 0);
 }
 
 .tapback-annotation.tapback-from-me {
-    border: 1px solid var(--accent);
+    background: var(--accent);
+    border-color: var(--accent);
 }
 
-.message.from-me .tapback-annotation.tapback-from-me {
-    border: 1px solid rgba(255, 255, 255, 0.5);
+.tapback-annotation.tapback-from-me::after {
+    background: var(--accent);
+    border-color: var(--accent);
 }
 
 /* Compose Modal Styles */
