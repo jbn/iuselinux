@@ -54,7 +54,7 @@ _send_timestamps: deque[float] = deque()
 
 from .db import FullDiskAccessError, check_db_access
 from .messages import get_chats, get_messages, get_attachment, search_messages, Chat, Message, Attachment
-from .sender import send_imessage, SendResult
+from .sender import send_imessage, send_imessage_with_file, SendResult
 from .config import get_config, get_config_value, update_config, DEFAULTS as CONFIG_DEFAULTS
 from .contacts import resolve_contact, is_available as contacts_available, ContactInfo
 
@@ -124,7 +124,7 @@ def serve_notification_sound() -> FileResponse:
     return FileResponse(sound_path, media_type=f"audio/{suffix[1:]}")
 
 
-from fastapi import UploadFile, File
+from fastapi import UploadFile, File, Form
 
 
 @app.post("/notification-sound")
@@ -640,6 +640,133 @@ def send_message(request: SendRequest) -> SendResponse:
     logger.info("Message sent successfully to %s", request.recipient)
     _send_timestamps.append(time.time())
     return SendResponse(success=True)
+
+
+# File upload limits
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+ALLOWED_FILE_TYPES = {
+    # Images
+    "image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif",
+    # Videos
+    "video/mp4", "video/quicktime", "video/mpeg", "video/webm",
+    # Audio
+    "audio/mpeg", "audio/mp4", "audio/wav", "audio/ogg",
+    # Documents
+    "application/pdf",
+}
+
+# Temp directory for uploads
+UPLOAD_DIR = Path(tempfile.gettempdir()) / "iuselinux_uploads"
+
+
+def _ensure_upload_dir() -> None:
+    """Ensure the upload directory exists."""
+    UPLOAD_DIR.mkdir(exist_ok=True)
+
+
+def _cleanup_old_uploads(max_age_seconds: int = 3600) -> None:
+    """Remove files older than max_age_seconds from upload directory."""
+    if not UPLOAD_DIR.exists():
+        return
+    cutoff = time.time() - max_age_seconds
+    for file_path in UPLOAD_DIR.iterdir():
+        if file_path.is_file() and file_path.stat().st_mtime < cutoff:
+            try:
+                file_path.unlink()
+            except OSError:
+                pass
+
+
+@app.post("/send-with-attachment", response_model=SendResponse, responses={
+    400: {"description": "Invalid file or request"},
+    404: {"model": SendErrorResponse, "description": "Recipient not found"},
+    413: {"description": "File too large"},
+    429: {"description": "Rate limit exceeded"},
+    503: {"model": SendErrorResponse, "description": "iMessage service unavailable"},
+})
+async def send_with_attachment(
+    recipient: str = Form(...),
+    message: str | None = Form(default=None),
+    file: UploadFile = File(...),
+) -> SendResponse:
+    """
+    Send a file attachment via iMessage.
+
+    - recipient: Phone number, email, or chat GUID
+    - message: Optional text message to send with the file
+    - file: The file to send (multipart/form-data)
+    """
+    logger.info("Sending attachment to %s: %s", recipient, file.filename)
+
+    # Validate recipient format (reuse logic from SendRequest)
+    recipient = recipient.strip()
+    normalized = re.sub(r"[\s\-\(\)]", "", recipient)
+    if not (PHONE_PATTERN.match(normalized) or
+            EMAIL_PATTERN.match(recipient) or
+            re.match(r"^(iMessage|SMS|RCS);[+-];chat\d+$", recipient)):
+        raise HTTPException(status_code=400, detail="Invalid recipient format")
+
+    # Normalize phone numbers
+    if PHONE_PATTERN.match(normalized):
+        recipient = normalized
+
+    # Check rate limit
+    _check_rate_limit()
+
+    # Validate file
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    # Check file size using content-length header or by reading
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail=f"File too large (max {MAX_FILE_SIZE // (1024*1024)} MB)")
+
+    # Check content type
+    content_type = file.content_type or "application/octet-stream"
+    if content_type not in ALLOWED_FILE_TYPES:
+        # Be permissive - allow unknown types but warn
+        logger.warning("Unknown content type: %s for file %s", content_type, file.filename)
+
+    # Clean up old uploads periodically
+    _cleanup_old_uploads()
+
+    # Ensure upload directory exists
+    _ensure_upload_dir()
+
+    # Save to temp file with unique name
+    file_ext = Path(file.filename).suffix or ""
+    temp_filename = f"{int(time.time() * 1000)}_{os.urandom(4).hex()}{file_ext}"
+    temp_path = UPLOAD_DIR / temp_filename
+
+    try:
+        with open(temp_path, "wb") as f:
+            f.write(content)
+
+        # Send via AppleScript
+        result = send_imessage_with_file(recipient, str(temp_path), message)
+
+        if not result.success:
+            status_code, error_type, user_message = _classify_send_error(result.error)
+            logger.warning("Send with attachment failed: %s (type=%s)", user_message, error_type)
+            raise HTTPException(
+                status_code=status_code,
+                detail={
+                    "error": user_message,
+                    "error_type": error_type,
+                    "detail": result.error if result.error != user_message else None,
+                },
+            )
+
+        logger.info("Attachment sent successfully to %s", recipient)
+        _send_timestamps.append(time.time())
+        return SendResponse(success=True)
+
+    finally:
+        # Clean up temp file after a delay (to allow Messages to process it)
+        # We don't delete immediately because Messages.app may still be reading the file
+        # The periodic cleanup will handle it eventually
+        pass
 
 
 class PollResponse(BaseModel):

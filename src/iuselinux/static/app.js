@@ -1182,21 +1182,8 @@ async function refreshChatList() {
     }
 }
 
-sendForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const text = messageInput.value.trim();
-    if (!text || !currentRecipient) return;
-
-    // Optimistically add message to UI immediately
-    const pendingId = addPendingMessage(text, currentRecipient);
-
-    // Clear input right away for better UX
-    messageInput.value = '';
-    messageInput.focus();
-
-    // Send in background - status updates happen via pending message state
-    sendMessageAsync(currentRecipient, text, pendingId);
-});
+// Original send form handler - now replaced by attachment-aware handler at end of file
+// See the attachment feature section for the current handler
 
 // Settings functions
 async function loadConfig() {
@@ -2426,6 +2413,291 @@ messagesDiv.addEventListener('click', (e) => {
         }
     }
 });
+
+// ==========================================
+// Attachment Upload Feature
+// ==========================================
+
+const attachBtn = document.getElementById('attach-btn');
+const fileInput = document.getElementById('file-input');
+const attachmentPreview = document.getElementById('attachment-preview');
+
+// Store pending attachment
+let pendingAttachment = null;
+
+// File type icons
+const FILE_TYPE_ICONS = {
+    'image': '🖼️',
+    'video': '🎬',
+    'audio': '🎵',
+    'application/pdf': '📄',
+    'default': '📎'
+};
+
+function getFileIcon(mimeType) {
+    if (!mimeType) return FILE_TYPE_ICONS.default;
+    if (mimeType.startsWith('image/')) return FILE_TYPE_ICONS.image;
+    if (mimeType.startsWith('video/')) return FILE_TYPE_ICONS.video;
+    if (mimeType.startsWith('audio/')) return FILE_TYPE_ICONS.audio;
+    return FILE_TYPE_ICONS[mimeType] || FILE_TYPE_ICONS.default;
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function setAttachment(file) {
+    if (!file) {
+        clearAttachment();
+        return;
+    }
+
+    // Validate file size (100 MB limit)
+    const maxSize = 100 * 1024 * 1024;
+    if (file.size > maxSize) {
+        alert('File too large. Maximum size is 100 MB.');
+        return;
+    }
+
+    pendingAttachment = file;
+    renderAttachmentPreview(file);
+    updateSendButtonState();
+}
+
+function clearAttachment() {
+    pendingAttachment = null;
+    attachmentPreview.innerHTML = '';
+    attachmentPreview.classList.add('hidden');
+    fileInput.value = '';
+    updateSendButtonState();
+}
+
+function renderAttachmentPreview(file) {
+    attachmentPreview.innerHTML = '';
+    attachmentPreview.classList.remove('hidden');
+
+    const item = document.createElement('div');
+    item.className = 'attachment-preview-item';
+
+    // Check if it's an image we can preview
+    if (file.type.startsWith('image/')) {
+        item.classList.add('image-preview');
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(file);
+        img.alt = file.name;
+        img.onload = () => URL.revokeObjectURL(img.src);
+        item.appendChild(img);
+    } else {
+        // File preview with icon
+        item.classList.add('file-preview');
+        item.innerHTML = `
+            <span class="file-icon">${getFileIcon(file.type)}</span>
+            <div class="file-info">
+                <div class="file-name">${escapeHtml(file.name)}</div>
+                <div class="file-size">${formatFileSize(file.size)}</div>
+            </div>
+        `;
+    }
+
+    // Add remove button
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'attachment-preview-remove';
+    removeBtn.innerHTML = '×';
+    removeBtn.title = 'Remove attachment';
+    removeBtn.onclick = (e) => {
+        e.preventDefault();
+        clearAttachment();
+    };
+    item.appendChild(removeBtn);
+
+    attachmentPreview.appendChild(item);
+}
+
+function updateSendButtonState() {
+    const hasText = messageInput.value.trim().length > 0;
+    const hasAttachment = pendingAttachment !== null;
+    const hasRecipient = currentRecipient !== null;
+
+    // Can send if we have (text OR attachment) AND a recipient
+    sendBtn.disabled = !(hasRecipient && (hasText || hasAttachment));
+}
+
+// Attach button click
+attachBtn.addEventListener('click', () => {
+    fileInput.click();
+});
+
+// File input change
+fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        setAttachment(file);
+    }
+});
+
+// Update send button state on input
+messageInput.addEventListener('input', updateSendButtonState);
+
+// Drag and drop support
+const mainArea = document.querySelector('.main');
+let dragCounter = 0;
+
+function showDragOverlay() {
+    let overlay = document.getElementById('drag-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'drag-overlay';
+        overlay.className = 'drag-overlay';
+        overlay.innerHTML = '<div class="drag-overlay-text">Drop file to attach</div>';
+        mainArea.appendChild(overlay);
+    }
+    overlay.classList.remove('hidden');
+}
+
+function hideDragOverlay() {
+    const overlay = document.getElementById('drag-overlay');
+    if (overlay) {
+        overlay.classList.add('hidden');
+    }
+}
+
+mainArea.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    if (!currentRecipient) return;
+    dragCounter++;
+    showDragOverlay();
+});
+
+mainArea.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter <= 0) {
+        dragCounter = 0;
+        hideDragOverlay();
+    }
+});
+
+mainArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+});
+
+mainArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    hideDragOverlay();
+
+    if (!currentRecipient) return;
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        setAttachment(files[0]);
+    }
+});
+
+// Clipboard paste support for images
+messageInput.addEventListener('paste', (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of items) {
+        if (item.type.startsWith('image/')) {
+            e.preventDefault();
+            const file = item.getAsFile();
+            if (file) {
+                // Give it a meaningful name
+                const ext = file.type.split('/')[1] || 'png';
+                const namedFile = new File([file], `pasted-image.${ext}`, { type: file.type });
+                setAttachment(namedFile);
+            }
+            return;
+        }
+    }
+});
+
+// Send form handler with attachment support
+sendForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const text = messageInput.value.trim();
+    if (!currentRecipient) return;
+    if (!text && !pendingAttachment) return;
+
+    if (pendingAttachment) {
+        // Send with attachment
+        await sendWithAttachment(currentRecipient, text || null, pendingAttachment);
+    } else {
+        // Text-only send (existing flow)
+        const pendingId = addPendingMessage(text, currentRecipient);
+        messageInput.value = '';
+        messageInput.focus();
+        sendMessageAsync(currentRecipient, text, pendingId);
+    }
+
+    updateSendButtonState();
+});
+
+async function sendWithAttachment(recipient, message, file) {
+    // Show uploading state
+    const previewItem = attachmentPreview.querySelector('.attachment-preview-item');
+    if (previewItem) {
+        previewItem.classList.add('uploading');
+    }
+
+    // Create form data
+    const formData = new FormData();
+    formData.append('recipient', recipient);
+    formData.append('file', file);
+    if (message) {
+        formData.append('message', message);
+    }
+
+    try {
+        const res = await fetch('/send-with-attachment', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            const errorMsg = typeof err.detail === 'string'
+                ? err.detail
+                : (err.detail?.error || err.message || 'Send failed');
+            alert('Failed to send: ' + errorMsg);
+            if (previewItem) {
+                previewItem.classList.remove('uploading');
+            }
+            return;
+        }
+
+        // Success - clear attachment and text
+        clearAttachment();
+        messageInput.value = '';
+        messageInput.focus();
+
+    } catch (err) {
+        console.error('Send with attachment failed:', err);
+        alert('Failed to send attachment');
+        if (previewItem) {
+            previewItem.classList.remove('uploading');
+        }
+    }
+}
+
+// Enable/disable attach button based on recipient selection
+function updateAttachButtonState() {
+    attachBtn.disabled = !currentRecipient;
+}
+
+// Patch selectChat to also update attach button
+const _originalSelectChat = selectChat;
+selectChat = function(item) {
+    _originalSelectChat(item);
+    updateAttachButtonState();
+    clearAttachment();  // Clear attachment when switching chats
+};
 
 // Initial load
 loadConfig();
