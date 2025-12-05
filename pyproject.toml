@@ -30,6 +30,7 @@ dependencies = [
     "pillow-heif>=1.1.1",
     "websockets>=15.0.1",
     "click>=8.0.0",
+    "python-multipart>=0.0.20",
 ]
 
 [project.optional-dependencies]
