@@ -20,6 +20,8 @@ DEFAULTS: dict[str, Any] = {
     "contact_cache_ttl": 86400,  # Contact cache TTL in seconds (default 24 hours)
     "log_level": "WARNING",  # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
     "notifications_enabled": True,  # Browser notifications for new messages
+    "notification_sound_enabled": True,  # Play sound with notifications
+    "custom_notification_sound": "",  # Custom sound file path (empty = use default ding.mp3)
     "theme": "auto",  # Theme: "auto" (system preference), "light", or "dark"
     # Advanced settings
     "thumbnail_cache_ttl": 86400,  # Video thumbnail cache TTL in seconds (default 24 hours)

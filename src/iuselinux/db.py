@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-logger = logging.getLogger("imessage_gateway.db")
+logger = logging.getLogger("iuselinux.db")
 
 # Mac absolute time epoch: 2001-01-01 00:00:00 UTC
 MAC_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)

@@ -38,6 +38,8 @@ const SCROLL_THRESHOLD = 50;    // Pixels from bottom to consider "at bottom"
 
 // Notification state
 let notificationsEnabled = true;  // Default on
+let notificationSoundEnabled = true;  // Default on
+let notificationAudio = null;  // Audio element for notification sound
 
 // Theme state
 let currentTheme = 'auto';  // 'auto', 'light', or 'dark'
@@ -784,11 +786,19 @@ async function sendMessageAsync(recipient, text, pendingId) {
 
 // Browser notifications
 function sendNotification(messages) {
-    if (!('Notification' in window)) return;
-
     // Find first real message (not tapback)
     const realMessage = messages.find(m => !m.tapback_type && !m.is_from_me);
     if (!realMessage) return;
+
+    // Play notification sound if enabled
+    if (notificationSoundEnabled && notificationAudio) {
+        notificationAudio.currentTime = 0;
+        notificationAudio.play().catch(() => {
+            // Ignore autoplay errors (user hasn't interacted with page yet)
+        });
+    }
+
+    if (!('Notification' in window)) return;
 
     if (Notification.permission === 'granted') {
         const senderName = realMessage.contact?.name || realMessage.handle_id || 'Unknown';
@@ -835,13 +845,10 @@ function renderAttachments(attachments) {
 
     return attachments.map(att => {
         if (isImageMimeType(att.mime_type)) {
-            // For HEIC, browsers may not support it - show anyway, they'll see broken image
-            // Could add server-side conversion in future
+            // Images open in lightbox - HEIC is auto-converted server-side
             return `
-                <div class="attachment attachment-image">
-                    <a href="${att.url}" target="_blank">
-                        <img src="${att.url}" alt="${escapeHtml(att.filename || 'Image')}" loading="lazy">
-                    </a>
+                <div class="attachment attachment-image" data-image-url="${att.url}" data-download-url="${att.url}" data-filename="${escapeHtml(att.filename || 'Image')}">
+                    <img src="${att.url}" alt="${escapeHtml(att.filename || 'Image')}" loading="lazy">
                 </div>
             `;
         } else if (isVideoMimeType(att.mime_type)) {
@@ -1214,6 +1221,19 @@ function applyConfig(config) {
     // Apply notification setting
     notificationsEnabled = config.notifications_enabled !== false;  // Default true
 
+    // Apply notification sound setting
+    notificationSoundEnabled = config.notification_sound_enabled !== false;  // Default true
+
+    // Initialize or update notification audio
+    const customSound = config.custom_notification_sound || '';
+    const soundUrl = customSound ? `/notification-sound/${encodeURIComponent(customSound)}` : '/static/ding.mp3';
+    if (!notificationAudio) {
+        notificationAudio = new Audio(soundUrl);
+        notificationAudio.volume = 0.5;
+    } else if (notificationAudio.src !== new URL(soundUrl, window.location.origin).href) {
+        notificationAudio.src = soundUrl;
+    }
+
     // Apply theme setting
     const theme = config.theme || 'auto';
     applyTheme(theme);
@@ -1221,6 +1241,9 @@ function applyConfig(config) {
 }
 
 async function openSettings() {
+    // Reset to General tab
+    switchSettingsTab('general');
+
     // Populate form with current values
     settingPreventSleep.checked = currentConfig.prevent_sleep || false;
     settingCustomCss.value = currentConfig.custom_css || '';
@@ -1232,15 +1255,51 @@ async function openSettings() {
         settingNotifications.checked = currentConfig.notifications_enabled !== false;
     }
 
+    // Populate notification sound settings
+    const settingNotificationSound = document.getElementById('setting-notification-sound');
+    const settingCustomNotificationSound = document.getElementById('setting-custom-notification-sound');
+    if (settingNotificationSound) {
+        settingNotificationSound.checked = currentConfig.notification_sound_enabled !== false;
+    }
+    if (settingCustomNotificationSound) {
+        settingCustomNotificationSound.value = currentConfig.custom_notification_sound || '';
+    }
+
     // Populate theme setting
     if (settingTheme) {
         settingTheme.value = currentConfig.theme || 'auto';
+    }
+
+    // Populate advanced settings
+    const settingThumbnailCacheTtl = document.getElementById('setting-thumbnail-cache-ttl');
+    const settingThumbnailTimestamp = document.getElementById('setting-thumbnail-timestamp');
+    const settingWebsocketPollInterval = document.getElementById('setting-websocket-poll-interval');
+
+    if (settingThumbnailCacheTtl) {
+        settingThumbnailCacheTtl.value = currentConfig.thumbnail_cache_ttl ?? 86400;
+    }
+    if (settingThumbnailTimestamp) {
+        settingThumbnailTimestamp.value = currentConfig.thumbnail_timestamp ?? 3.0;
+    }
+    if (settingWebsocketPollInterval) {
+        settingWebsocketPollInterval.value = currentConfig.websocket_poll_interval ?? 1.0;
     }
 
     settingsModal.classList.remove('hidden');
 
     // Fetch health status for about section
     await updateHealthStatus();
+}
+
+function switchSettingsTab(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.settings-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.tab === tabName);
+    });
+    // Update tab content
+    document.querySelectorAll('.settings-tab-content').forEach(content => {
+        content.classList.toggle('active', content.id === `tab-${tabName}`);
+    });
 }
 
 async function updateHealthStatus() {
@@ -1295,13 +1354,24 @@ function closeSettings() {
 
 async function saveSettings() {
     const settingNotifications = document.getElementById('setting-notifications');
+    const settingNotificationSound = document.getElementById('setting-notification-sound');
+    const settingCustomNotificationSound = document.getElementById('setting-custom-notification-sound');
+    const settingThumbnailCacheTtl = document.getElementById('setting-thumbnail-cache-ttl');
+    const settingThumbnailTimestamp = document.getElementById('setting-thumbnail-timestamp');
+    const settingWebsocketPollInterval = document.getElementById('setting-websocket-poll-interval');
 
     const updates = {
         prevent_sleep: settingPreventSleep.checked,
         custom_css: settingCustomCss.value,
         api_token: settingApiToken.value,
         notifications_enabled: settingNotifications ? settingNotifications.checked : true,
-        theme: settingTheme ? settingTheme.value : 'auto'
+        notification_sound_enabled: settingNotificationSound ? settingNotificationSound.checked : true,
+        custom_notification_sound: settingCustomNotificationSound ? settingCustomNotificationSound.value : '',
+        theme: settingTheme ? settingTheme.value : 'auto',
+        // Advanced settings
+        thumbnail_cache_ttl: settingThumbnailCacheTtl ? parseInt(settingThumbnailCacheTtl.value, 10) || 86400 : 86400,
+        thumbnail_timestamp: settingThumbnailTimestamp ? parseFloat(settingThumbnailTimestamp.value) || 3.0 : 3.0,
+        websocket_poll_interval: settingWebsocketPollInterval ? parseFloat(settingWebsocketPollInterval.value) || 1.0 : 1.0
     };
 
     try {
@@ -1330,6 +1400,11 @@ settingsBtn.addEventListener('click', openSettings);
 settingsClose.addEventListener('click', closeSettings);
 settingsCancel.addEventListener('click', closeSettings);
 settingsSave.addEventListener('click', saveSettings);
+
+// Settings tab switching
+document.querySelectorAll('.settings-tab').forEach(tab => {
+    tab.addEventListener('click', () => switchSettingsTab(tab.dataset.tab));
+});
 
 // Close modal on backdrop click
 settingsModal.querySelector('.modal-backdrop').addEventListener('click', closeSettings);
@@ -2186,6 +2261,48 @@ selectChat = function(item) {
     clearMessageSelection();
     originalSelectChat(item);
 };
+
+// Image Lightbox functionality
+const lightboxModal = document.getElementById('lightbox-modal');
+const lightboxImage = document.getElementById('lightbox-image');
+const lightboxDownload = document.getElementById('lightbox-download');
+const lightboxClose = document.querySelector('.lightbox-close');
+const lightboxBackdrop = document.querySelector('.lightbox-backdrop');
+
+function openLightbox(imageUrl, downloadUrl, filename) {
+    lightboxImage.src = imageUrl;
+    lightboxDownload.href = downloadUrl;
+    lightboxDownload.download = filename || 'image';
+    lightboxModal.classList.remove('hidden');
+}
+
+function closeLightbox() {
+    lightboxModal.classList.add('hidden');
+    lightboxImage.src = '';  // Clear image to stop loading
+}
+
+// Close lightbox on X button, backdrop click, or Escape key
+if (lightboxClose) lightboxClose.addEventListener('click', closeLightbox);
+if (lightboxBackdrop) lightboxBackdrop.addEventListener('click', closeLightbox);
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && lightboxModal && !lightboxModal.classList.contains('hidden')) {
+        closeLightbox();
+    }
+});
+
+// Delegate click handler for attachment images (they're dynamically rendered)
+messagesDiv.addEventListener('click', (e) => {
+    const attachmentImage = e.target.closest('.attachment-image');
+    if (attachmentImage) {
+        const imageUrl = attachmentImage.dataset.imageUrl;
+        const downloadUrl = attachmentImage.dataset.downloadUrl;
+        const filename = attachmentImage.dataset.filename;
+        if (imageUrl) {
+            e.preventDefault();
+            openLightbox(imageUrl, downloadUrl || imageUrl, filename);
+        }
+    }
+});
 
 // Initial load
 loadConfig();

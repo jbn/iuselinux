@@ -4,7 +4,7 @@ import logging
 import subprocess
 from dataclasses import dataclass
 
-logger = logging.getLogger("imessage_gateway.sender")
+logger = logging.getLogger("iuselinux.sender")
 
 
 @dataclass

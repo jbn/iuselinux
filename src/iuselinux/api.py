@@ -1,4 +1,4 @@
-"""FastAPI server for iMessage Gateway."""
+"""FastAPI server for iUseLinux."""
 
 import hashlib
 import io
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import asyncio
 
-logger = logging.getLogger("imessage_gateway.api")
+logger = logging.getLogger("iuselinux.api")
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -43,7 +43,7 @@ FFMPEG_AVAILABLE = _check_ffmpeg()
 FFPROBE_AVAILABLE = _check_ffprobe()
 
 # Thumbnail cache directory (thumbnails are small, worth caching on disk)
-CACHE_DIR = Path(tempfile.gettempdir()) / "imessage_gateway_cache"
+CACHE_DIR = Path(tempfile.gettempdir()) / "iuselinux_cache"
 CACHE_DIR.mkdir(exist_ok=True)
 
 
@@ -59,7 +59,7 @@ from .config import get_config, get_config_value, update_config, DEFAULTS as CON
 from .contacts import resolve_contact, is_available as contacts_available, ContactInfo
 
 app = FastAPI(
-    title="iMessage Gateway",
+    title="iUseLinux",
     description="Read and send iMessages via local API",
     version="0.1.0",
 )
@@ -87,6 +87,30 @@ def serve_static(file_path: str) -> FileResponse:
         headers = {"Cache-Control": "public, max-age=86400"}
 
     return FileResponse(full_path, headers=headers)
+
+
+# Config directory for user files (custom sounds, etc.)
+from .config import CONFIG_DIR
+
+
+@app.get("/notification-sound/{filename:path}")
+def serve_notification_sound(filename: str) -> FileResponse:
+    """Serve custom notification sound from user's config directory."""
+    # Sanitize filename to prevent path traversal
+    safe_filename = Path(filename).name
+    if not safe_filename or safe_filename != filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    sound_path = CONFIG_DIR / safe_filename
+    if not sound_path.exists() or not sound_path.is_file():
+        raise HTTPException(status_code=404, detail="Sound file not found")
+
+    # Only allow audio files
+    suffix = sound_path.suffix.lower()
+    if suffix not in {".mp3", ".wav", ".ogg", ".m4a", ".aac"}:
+        raise HTTPException(status_code=400, detail="Invalid audio format")
+
+    return FileResponse(sound_path, media_type=f"audio/{suffix[1:]}")
 
 # Authentication
 security = HTTPBearer(auto_error=False)

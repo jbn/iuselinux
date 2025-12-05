@@ -1,4 +1,4 @@
-"""iMessage Gateway - Read and send iMessages via local API."""
+"""iUseLinux - Read and send iMessages via local API."""
 
 import logging
 import sys
@@ -11,8 +11,8 @@ def setup_logging() -> None:
     level_str = get_config_value("log_level")
     level = getattr(logging, level_str.upper(), logging.WARNING)
 
-    # Configure root logger for imessage_gateway
-    logger = logging.getLogger("imessage_gateway")
+    # Configure root logger for iuselinux
+    logger = logging.getLogger("iuselinux")
     logger.setLevel(level)
 
     # Only add handler if not already configured

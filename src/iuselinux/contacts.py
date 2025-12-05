@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-logger = logging.getLogger("imessage_gateway.contacts")
+logger = logging.getLogger("iuselinux.contacts")
 
 
 def _find_addressbook_db() -> Path | None:

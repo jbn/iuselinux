@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iMessage Gateway</title>
+    <title>iUseLinux</title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
@@ -52,56 +52,93 @@
                 <h2>Settings</h2>
                 <button id="settings-close" class="modal-close">&times;</button>
             </div>
+            <div class="settings-tabs">
+                <button class="settings-tab active" data-tab="general">General</button>
+                <button class="settings-tab" data-tab="advanced">Advanced</button>
+            </div>
             <div class="modal-body">
-                <div class="setting-group">
-                    <label class="setting-label">
-                        <input type="checkbox" id="setting-prevent-sleep">
-                        <span>Prevent Sleep</span>
-                    </label>
-                    <p class="setting-description">Keep your Mac awake while the gateway is running</p>
-                </div>
-                <div class="setting-group">
-                    <label class="setting-label">
-                        <input type="checkbox" id="setting-notifications" checked>
-                        <span>Browser Notifications</span>
-                    </label>
-                    <p class="setting-description">Show desktop notifications for new messages when the tab is not active</p>
-                </div>
-                <div class="setting-group">
-                    <label class="setting-label-block">Theme</label>
-                    <p class="setting-description">Choose your preferred color scheme</p>
-                    <select id="setting-theme">
-                        <option value="auto">Auto (System)</option>
-                        <option value="light">Light</option>
-                        <option value="dark">Dark</option>
-                    </select>
-                </div>
-                <div class="setting-group">
-                    <label class="setting-label-block">Custom CSS</label>
-                    <p class="setting-description">Add custom styles to customize the appearance</p>
-                    <textarea id="setting-custom-css" rows="6" placeholder="/* Add your custom CSS here */"></textarea>
-                </div>
-                <div class="setting-group">
-                    <label class="setting-label-block">API Token</label>
-                    <p class="setting-description">Set a token to require authentication for API access. Leave empty to disable.</p>
-                    <input type="password" id="setting-api-token" placeholder="Enter token to enable auth">
-                </div>
-                <div class="setting-divider"></div>
-                <div class="about-section">
-                    <h3>About</h3>
-                    <p class="about-name">iMessage Gateway <span id="app-version">v0.1.0</span></p>
-                    <p class="about-description">A web interface for reading and sending iMessages on macOS.</p>
-                    <div class="about-status">
-                        <span class="status-label">Database:</span>
-                        <span id="status-db" class="status-value">checking...</span>
+                <!-- General Tab -->
+                <div class="settings-tab-content active" id="tab-general">
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <input type="checkbox" id="setting-prevent-sleep">
+                            <span>Prevent Sleep</span>
+                        </label>
+                        <p class="setting-description">Keep your Mac awake while the gateway is running</p>
                     </div>
-                    <div class="about-status">
-                        <span class="status-label">FFmpeg:</span>
-                        <span id="status-ffmpeg" class="status-value">checking...</span>
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <input type="checkbox" id="setting-notifications" checked>
+                            <span>Browser Notifications</span>
+                        </label>
+                        <p class="setting-description">Show desktop notifications for new messages when the tab is not active</p>
                     </div>
-                    <div class="about-status">
-                        <span class="status-label">Contacts:</span>
-                        <span id="status-contacts" class="status-value">checking...</span>
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <input type="checkbox" id="setting-notification-sound" checked>
+                            <span>Notification Sound</span>
+                        </label>
+                        <p class="setting-description">Play a sound when new messages arrive</p>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label-block">Custom Sound Path</label>
+                        <p class="setting-description">Path to custom sound file (leave empty for default). Place files in ~/Library/Application Support/iuselinux/</p>
+                        <input type="text" id="setting-custom-notification-sound" placeholder="notification.mp3">
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label-block">Theme</label>
+                        <p class="setting-description">Choose your preferred color scheme</p>
+                        <select id="setting-theme">
+                            <option value="auto">Auto (System)</option>
+                            <option value="light">Light</option>
+                            <option value="dark">Dark</option>
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label-block">Custom CSS</label>
+                        <p class="setting-description">Add custom styles to customize the appearance</p>
+                        <textarea id="setting-custom-css" rows="6" placeholder="/* Add your custom CSS here */"></textarea>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label-block">API Token</label>
+                        <p class="setting-description">Set a token to require authentication for API access. Leave empty to disable.</p>
+                        <input type="password" id="setting-api-token" placeholder="Enter token to enable auth">
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="about-section">
+                        <h3>About</h3>
+                        <p class="about-name">iUseLinux <span id="app-version">v0.1.0</span></p>
+                        <p class="about-description">A web interface for reading and sending iMessages on macOS.</p>
+                        <div class="about-status">
+                            <span class="status-label">Database:</span>
+                            <span id="status-db" class="status-value">checking...</span>
+                        </div>
+                        <div class="about-status">
+                            <span class="status-label">FFmpeg:</span>
+                            <span id="status-ffmpeg" class="status-value">checking...</span>
+                        </div>
+                        <div class="about-status">
+                            <span class="status-label">Contacts:</span>
+                            <span id="status-contacts" class="status-value">checking...</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Advanced Tab -->
+                <div class="settings-tab-content" id="tab-advanced">
+                    <div class="setting-group">
+                        <label class="setting-label-block">Thumbnail Cache TTL</label>
+                        <p class="setting-description">How long to cache video thumbnails (in seconds). Default: 86400 (24 hours)</p>
+                        <input type="number" id="setting-thumbnail-cache-ttl" min="0" step="1" placeholder="86400">
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label-block">Thumbnail Timestamp</label>
+                        <p class="setting-description">Seconds into video to extract thumbnail from. Default: 3.0</p>
+                        <input type="number" id="setting-thumbnail-timestamp" min="0" step="0.1" placeholder="3.0">
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label-block">WebSocket Poll Interval</label>
+                        <p class="setting-description">Seconds between database polls for new messages. Lower = faster updates, higher CPU. Default: 1.0</p>
+                        <input type="number" id="setting-websocket-poll-interval" min="0.1" step="0.1" placeholder="1.0">
                     </div>
                 </div>
             </div>
@@ -131,6 +168,24 @@
             </div>
             <div class="compose-footer">
                 <button id="compose-send" class="btn-primary" disabled>Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Lightbox Modal -->
+    <div id="lightbox-modal" class="lightbox hidden">
+        <div class="lightbox-backdrop"></div>
+        <div class="lightbox-content">
+            <button class="lightbox-close" title="Close">&times;</button>
+            <img id="lightbox-image" src="" alt="Full size image">
+            <div class="lightbox-controls">
+                <a id="lightbox-download" href="" download class="lightbox-btn" title="Download original">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10 13l-4-4h3V3h2v6h3l-4 4z"/>
+                        <path d="M17 15v2H3v-2H1v4h18v-4h-2z"/>
+                    </svg>
+                    Download
+                </a>
             </div>
         </div>
     </div>
