@@ -19,9 +19,8 @@ const customCssStyle = document.getElementById('custom-css');
 
 let currentChatId = null;
 let currentRecipient = null;
-let websocket = null;
-let globalWebsocket = null;  // Global WebSocket to monitor all chats
-let globalLastRowid = 0;     // Track last rowid for global WebSocket
+let websocket = null;        // Single WebSocket for all messages
+let keepaliveInterval = null; // Keepalive ping interval
 let lastMessageId = 0;
 let oldestMessageId = null;  // Track oldest message for backward pagination
 let allMessages = [];  // Store all messages for current chat
@@ -474,7 +473,6 @@ function selectChat(item) {
     isLoadingOlder = false;
 
     loadMessages();
-    connectWebSocket();
 }
 
 async function loadMessages() {
@@ -1051,6 +1049,27 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// Keepalive ping to prevent browser from closing idle WebSocket
+const KEEPALIVE_INTERVAL_MS = 30000; // 30 seconds
+
+function startKeepalive(ws) {
+    stopKeepalive();
+    keepaliveInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+        }
+    }, KEEPALIVE_INTERVAL_MS);
+}
+
+function stopKeepalive() {
+    if (keepaliveInterval) {
+        clearInterval(keepaliveInterval);
+        keepaliveInterval = null;
+    }
+}
+
+// Single WebSocket connection for ALL messages
+// Routes messages client-side: current chat -> message view, other chats -> sidebar update
 function connectWebSocket() {
     // Close existing connection if any
     if (websocket) {
@@ -1058,13 +1077,12 @@ function connectWebSocket() {
         websocket.onclose = null;
         websocket.close();
         websocket = null;
+        stopKeepalive();
     }
 
-    if (!currentChatId) return;
-
-    // Build WebSocket URL
+    // Build WebSocket URL - no chat_id filter, receive ALL messages
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws?chat_id=${currentChatId}`;
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
 
     const ws = new WebSocket(wsUrl);
 
@@ -1077,25 +1095,61 @@ function connectWebSocket() {
                 rowid: lastMessageId
             }));
         }
+
+        // Start keepalive ping to prevent browser from closing idle connection
+        startKeepalive(ws);
     };
 
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
 
         if (data.type === 'messages' && data.data.length > 0) {
-            appendMessages(data.data);
             lastMessageId = data.last_rowid;
+
+            // Route messages client-side
+            const currentChatMessages = [];
+            const otherChatMessages = [];
+
+            for (const msg of data.data) {
+                if (msg.chat_id === currentChatId) {
+                    // Message for currently viewed chat -> add to message view
+                    currentChatMessages.push(msg);
+                } else {
+                    // Message for another chat -> need to update sidebar
+                    otherChatMessages.push(msg);
+                }
+            }
+
+            // Append messages for current chat
+            if (currentChatMessages.length > 0) {
+                appendMessages(currentChatMessages);
+            }
+
+            // Handle messages for other chats
+            if (otherChatMessages.length > 0) {
+                refreshChatList();
+
+                // Send notifications for other chat messages when tab is hidden
+                if (notificationsEnabled && document.hidden) {
+                    // Find first real incoming message for notification
+                    const realMessage = otherChatMessages.find(m => !m.tapback_type && !m.is_from_me);
+                    if (realMessage) {
+                        sendNotification([realMessage]);
+                    }
+                }
+            }
         }
         // Ignore ping messages
     };
 
     ws.onclose = () => {
         console.log('WebSocket closed, reconnecting in 3s...');
+        stopKeepalive();
         // Only reconnect if this is still our active websocket
         if (websocket === ws) {
             websocket = null;
             setTimeout(() => {
-                if (currentChatId && !websocket) {
+                if (!websocket) {
                     connectWebSocket();
                 }
             }, 3000);
@@ -1107,66 +1161,6 @@ function connectWebSocket() {
     };
 
     websocket = ws;
-}
-
-// Global WebSocket to monitor all chats for new messages
-// This updates the chat list when messages arrive for other chats
-function connectGlobalWebSocket() {
-    if (globalWebsocket) {
-        globalWebsocket.onclose = null;
-        globalWebsocket.close();
-        globalWebsocket = null;
-    }
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // No chat_id filter - monitor ALL messages
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
-
-    const ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-        console.log('Global WebSocket connected');
-        if (globalLastRowid > 0) {
-            ws.send(JSON.stringify({
-                type: 'set_after_rowid',
-                rowid: globalLastRowid
-            }));
-        }
-    };
-
-    ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'messages' && data.data.length > 0) {
-            globalLastRowid = data.last_rowid;
-
-            // Check if any message is for a different chat than current
-            const hasOtherChatMessage = data.data.some(msg => msg.chat_id !== currentChatId);
-
-            if (hasOtherChatMessage) {
-                // Refresh chat list to show new/updated chats
-                refreshChatList();
-            }
-        }
-    };
-
-    ws.onclose = () => {
-        console.log('Global WebSocket closed, reconnecting in 3s...');
-        if (globalWebsocket === ws) {
-            globalWebsocket = null;
-            setTimeout(() => {
-                if (!globalWebsocket) {
-                    connectGlobalWebSocket();
-                }
-            }, 3000);
-        }
-    };
-
-    ws.onerror = (err) => {
-        console.error('Global WebSocket error:', err);
-    };
-
-    globalWebsocket = ws;
 }
 
 // Refresh chat list while preserving current selection
@@ -2196,4 +2190,4 @@ selectChat = function(item) {
 // Initial load
 loadConfig();
 loadChats();
-connectGlobalWebSocket();
+connectWebSocket();  // Single WebSocket for all messages
