@@ -71,19 +71,13 @@ class IMessageApp(App[None]):
         async def ws_listener() -> None:
             def on_messages(messages: list[Message]) -> None:
                 logger.debug("WebSocket callback: %d messages", len(messages))
-                self.call_from_thread(
-                    lambda: self.post_message(NewMessages(messages))
-                )
+                self.post_message(NewMessages(messages))
 
             def on_connected() -> None:
-                self.call_from_thread(
-                    lambda: self.notify("Real-time updates connected")
-                )
+                self.notify("Real-time updates connected")
 
             def on_disconnected() -> None:
-                self.call_from_thread(
-                    lambda: self.notify("Real-time updates disconnected", severity="warning")
-                )
+                self.notify("Real-time updates disconnected", severity="warning")
 
             await self.ws.listen(
                 on_messages=on_messages,
