@@ -23,6 +23,7 @@ def main() -> None:
     default_host = config.get("tui_server_host", "localhost")
     default_port = config.get("tui_server_port", 8000)
     default_token = config.get("api_token") or None
+    default_theme = config.get("tui_theme", "auto")
 
     @click.command()
     @click.option(
@@ -48,16 +49,23 @@ def main() -> None:
         envvar="IUSELINUX_TOKEN",
     )
     @click.option(
+        "--theme",
+        type=click.Choice(["auto", "dark", "light"]),
+        default=default_theme,
+        help="Color theme",
+        show_default=True,
+    )
+    @click.option(
         "--save",
         is_flag=True,
-        help="Save host/port/token to config for future sessions",
+        help="Save host/port/token/theme to config for future sessions",
     )
     @click.option(
         "--debug",
         is_flag=True,
         help="Enable debug logging to /tmp/imessage-tui.log",
     )
-    def run_tui(host: str, port: int, token: str | None, save: bool, debug: bool) -> None:
+    def run_tui(host: str, port: int, token: str | None, theme: str, save: bool, debug: bool) -> None:
         """iMessage Gateway TUI client.
 
         Connect to a running iMessage Gateway server and interact via terminal UI.
@@ -75,6 +83,7 @@ def main() -> None:
 
         try:
             from iuselinux.tui.app import IMessageApp
+            from iuselinux.tui.themes import ThemeMode
         except ImportError as e:
             print(
                 "TUI dependencies not installed. Install with: pip install iuselinux[tui]",
@@ -90,13 +99,17 @@ def main() -> None:
             updates = {
                 "tui_server_host": host,
                 "tui_server_port": port,
+                "tui_theme": theme,
             }
             if token:
                 updates["api_token"] = token
             update_config(updates)
-            print(f"Saved settings: {host}:{port}", file=sys.stderr)
+            print(f"Saved settings: {host}:{port} (theme={theme})", file=sys.stderr)
 
-        app = IMessageApp(host=host, port=port, token=token)
+        # Convert theme string to enum
+        theme_mode = ThemeMode(theme)
+
+        app = IMessageApp(host=host, port=port, token=token, theme_mode=theme_mode)
         app.run()
 
     run_tui()

@@ -10,8 +10,9 @@ logger = logging.getLogger(__name__)
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Header
+from textual.widgets import Footer
 
+from iuselinux.tui.widgets import AppHeader
 from iuselinux.tui.widgets.chat_list import ChatList, ChatSelected
 from iuselinux.tui.widgets.message_list import MessageList
 from iuselinux.tui.widgets.message_input import MessageInput, MessageSubmitted
@@ -61,9 +62,26 @@ class HomeScreen(Screen[None]):
         super().__init__()
         self._current_chat: Chat | None = None
 
+    async def on_mount(self) -> None:
+        """Initialize the header with server info."""
+        from iuselinux.tui.app import IMessageApp
+
+        app = self.app
+        if isinstance(app, IMessageApp):
+            header = self.query_one(AppHeader)
+            header.set_server(f"{app.server_host}:{app.server_port}")
+
+    def set_connection_status(self, connected: bool) -> None:
+        """Update the header connection indicator."""
+        try:
+            header = self.query_one(AppHeader)
+            header.set_connected(connected)
+        except Exception:
+            pass
+
     def compose(self) -> ComposeResult:
         """Create child widgets."""
-        yield Header()
+        yield AppHeader(title="iMessage")
         with Horizontal():
             with Vertical(id="sidebar"):
                 yield ChatList()

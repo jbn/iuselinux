@@ -13,6 +13,7 @@ from textual.message import Message as TextualMessage
 from iuselinux.tui.client import APIClient, WebSocketClient
 from iuselinux.tui.models import Message
 from iuselinux.tui.screens.home import HomeScreen
+from iuselinux.tui.themes import ThemeMode, detect_system_dark_mode
 
 
 class NewMessages(TextualMessage):
@@ -35,6 +36,7 @@ class IMessageApp(App[None]):
         Binding("ctrl+s", "settings", "Settings"),
         Binding("/", "search", "Search"),
         Binding("n", "compose", "New Message"),
+        Binding("ctrl+t", "toggle_theme", "Theme"),
     ]
 
     def __init__(
@@ -42,6 +44,7 @@ class IMessageApp(App[None]):
         host: str = "localhost",
         port: int = 8000,
         token: str | None = None,
+        theme_mode: ThemeMode = ThemeMode.AUTO,
     ) -> None:
         """Initialize the app with server connection info."""
         super().__init__()
@@ -51,11 +54,31 @@ class IMessageApp(App[None]):
         self.api = APIClient(host=host, port=port, token=token)
         self.ws = WebSocketClient(host=host, port=port, token=token)
         self._ws_task: object | None = None
+        self._theme_mode = theme_mode
+        self._apply_theme()
 
     @property
     def base_url(self) -> str:
         """Get the base URL for API calls."""
         return f"http://{self.server_host}:{self.server_port}"
+
+    def _apply_theme(self) -> None:
+        """Apply the current theme mode."""
+        if self._theme_mode == ThemeMode.LIGHT:
+            self.theme = "textual-light"
+        elif self._theme_mode == ThemeMode.DARK:
+            self.theme = "textual-dark"
+        else:  # AUTO
+            system_dark = detect_system_dark_mode()
+            self.theme = "textual-dark" if system_dark else "textual-light"
+
+    def cycle_theme(self) -> None:
+        """Cycle through theme modes: auto -> dark -> light -> auto."""
+        modes = [ThemeMode.AUTO, ThemeMode.DARK, ThemeMode.LIGHT]
+        current_idx = modes.index(self._theme_mode)
+        self._theme_mode = modes[(current_idx + 1) % len(modes)]
+        self._apply_theme()
+        self.notify(f"Theme: {self._theme_mode.value}")
 
     async def on_mount(self) -> None:
         """Called when app is mounted."""
@@ -75,9 +98,11 @@ class IMessageApp(App[None]):
 
             def on_connected() -> None:
                 self.notify("Real-time updates connected")
+                self._update_connection_status(True)
 
             def on_disconnected() -> None:
                 self.notify("Real-time updates disconnected", severity="warning")
+                self._update_connection_status(False)
 
             await self.ws.listen(
                 on_messages=on_messages,
@@ -86,6 +111,12 @@ class IMessageApp(App[None]):
             )
 
         self._ws_task = asyncio.create_task(ws_listener())
+
+    def _update_connection_status(self, connected: bool) -> None:
+        """Update connection status on the current screen."""
+        screen = self.screen
+        if hasattr(screen, "set_connection_status"):
+            screen.set_connection_status(connected)
 
     async def on_unmount(self) -> None:
         """Called when app is unmounting."""
@@ -127,3 +158,7 @@ class IMessageApp(App[None]):
     def action_compose(self) -> None:
         """Show compose screen for new message."""
         self.notify("Compose coming soon")
+
+    def action_toggle_theme(self) -> None:
+        """Cycle through theme modes."""
+        self.cycle_theme()
