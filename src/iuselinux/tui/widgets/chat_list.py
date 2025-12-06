@@ -15,37 +15,60 @@ if TYPE_CHECKING:
     from iuselinux.tui.models import Chat
 
 
-def _format_time(dt: datetime | None) -> str:
-    """Format timestamp for display."""
+def format_relative_time(dt: datetime | None) -> str:
+    """Format timestamp as relative time for chat list."""
     if not dt:
         return ""
     now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
     diff = now - dt
     if diff.days == 0:
-        return dt.strftime("%H:%M")
+        if diff.seconds < 60:
+            return "now"
+        elif diff.seconds < 3600:
+            mins = diff.seconds // 60
+            return f"{mins}m"
+        else:
+            return dt.strftime("%H:%M")
     elif diff.days == 1:
         return "Yesterday"
     elif diff.days < 7:
         return dt.strftime("%a")
-    else:
+    elif diff.days < 365:
         return dt.strftime("%b %d")
+    else:
+        return dt.strftime("%b %d, %Y")
 
 
 class ChatListItem(Option):
     """A single chat in the list."""
 
-    def __init__(self, chat: Chat) -> None:
+    def __init__(self, chat: Chat, unread_count: int = 0) -> None:
         self.chat = chat
+        self.unread_count = unread_count
         # Build rich text display
         content = Text()
-        content.append(chat.title, style="bold")
-        content.append("\n")
-        if chat.preview:
-            preview = chat.preview[:40] + "..." if len(chat.preview) > 40 else chat.preview
-            content.append(preview, style="dim")
-        time_str = _format_time(chat.last_message_time)
+
+        # First line: title and time
+        if unread_count > 0:
+            content.append("● ", style="bold blue")
+        content.append(chat.title, style="bold" if unread_count > 0 else "")
+
+        time_str = format_relative_time(chat.last_message_time)
         if time_str:
+            # Right-align time on same line conceptually (show after title)
             content.append(f"  {time_str}", style="dim italic")
+
+        content.append("\n")
+
+        # Second line: preview with unread badge
+        if chat.preview:
+            preview = chat.preview[:35] + "..." if len(chat.preview) > 35 else chat.preview
+            style = "" if unread_count > 0 else "dim"
+            content.append(preview, style=style)
+
+        if unread_count > 1:
+            content.append(f" ({unread_count})", style="bold blue")
+
         super().__init__(content, id=str(chat.rowid))
 
 

@@ -44,6 +44,13 @@ MessageList .placeholder {
     margin-top: 2;
 }
 
+MessageList .load-more-hint {
+    color: $text-muted;
+    text-style: italic;
+    text-align: center;
+    padding: 1 0;
+}
+
 /* Message bubbles */
 .message-bubble {
     margin: 0 1;

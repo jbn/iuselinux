@@ -16,6 +16,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Number of messages to load per page
+PAGE_SIZE = 50
+
 
 class MessageList(VerticalScroll):
     """Scrollable list of messages in a chat."""
@@ -25,6 +28,7 @@ class MessageList(VerticalScroll):
         Binding("k", "scroll_up", "Scroll Up", show=False),
         Binding("g", "scroll_home", "Top", show=False),
         Binding("G", "scroll_end", "Bottom", show=False),
+        Binding("pageup", "load_more", "Load More", show=False),
     ]
 
     def __init__(self) -> None:
@@ -34,6 +38,9 @@ class MessageList(VerticalScroll):
         self._messages: list[Message] = []
         self._pending_texts: set[str] = set()  # Track pending message texts
         self._seen_rowids: set[int] = set()  # Track seen message rowids to prevent duplicates
+        self._oldest_rowid: int | None = None  # For pagination
+        self._has_more: bool = True  # Whether there are more messages to load
+        self._loading_more: bool = False  # Prevent concurrent loads
 
     def on_mount(self) -> None:
         """Show placeholder when mounted."""
@@ -51,6 +58,9 @@ class MessageList(VerticalScroll):
         self._current_chat = chat
         self._pending_texts.clear()  # Clear pending messages when switching chats
         self._seen_rowids.clear()  # Clear seen rowids when switching chats
+        self._oldest_rowid = None
+        self._has_more = True
+        self._loading_more = False
         self.border_title = f"Messages - {chat.title}"
         self._show_placeholder("Loading messages...")
 
@@ -59,27 +69,45 @@ class MessageList(VerticalScroll):
             return
 
         try:
-            messages = await app.api.get_messages(chat.rowid, limit=100)
+            messages = await app.api.get_messages(chat.rowid, limit=PAGE_SIZE)
             self._messages = messages
             # Track all loaded message rowids
             self._seen_rowids = {m.rowid for m in messages}
+            # Track oldest for pagination
+            if messages:
+                self._oldest_rowid = min(m.rowid for m in messages)
+                self._has_more = len(messages) == PAGE_SIZE
+            else:
+                self._has_more = False
             self._render_messages()
         except Exception as e:
             self._show_placeholder(f"Error loading messages: {e}")
 
-    def _render_messages(self) -> None:
+    def _render_messages(self, scroll_to_bottom: bool = True) -> None:
         """Render all messages."""
         self.remove_children()
         if not self._messages:
             self._show_placeholder("No messages in this chat")
             return
 
-        # Messages come in reverse chronological order, reverse for display
-        for msg in reversed(self._messages):
-            self.mount(MessageBubble(msg))
+        is_group = self._current_chat.is_group if self._current_chat else False
 
-        # Scroll to bottom
-        self.scroll_end(animate=False)
+        # Show "load more" indicator at top if there are more messages
+        if self._has_more:
+            self.mount(Static("↑ Scroll up or press PageUp to load more", classes="load-more-hint"))
+
+        # Messages come in reverse chronological order, reverse for display
+        prev_sender: str | None = None
+        for msg in reversed(self._messages):
+            # Only show sender name if different from previous message
+            show_sender = msg.handle_id != prev_sender
+            prev_sender = msg.handle_id if not msg.is_from_me else None
+
+            self.mount(MessageBubble(msg, is_group=is_group, show_sender=show_sender))
+
+        # Scroll to bottom for initial load
+        if scroll_to_bottom:
+            self.scroll_end(animate=False)
 
     def add_message(self, message: Message) -> None:
         """Add a new message from WebSocket (confirmed message)."""
@@ -113,7 +141,8 @@ class MessageList(VerticalScroll):
         placeholders = self.query(".placeholder")
         for p in placeholders:
             p.remove()
-        self.mount(MessageBubble(message))
+        is_group = self._current_chat.is_group if self._current_chat else False
+        self.mount(MessageBubble(message, is_group=is_group))
         self.scroll_end(animate=True)
 
     def add_pending_message(self, text: str) -> None:
@@ -139,5 +168,63 @@ class MessageList(VerticalScroll):
         for p in placeholders:
             p.remove()
 
-        self.mount(MessageBubble(pending_msg, pending=True))
+        is_group = self._current_chat.is_group if self._current_chat else False
+        self.mount(MessageBubble(pending_msg, pending=True, is_group=is_group))
         self.scroll_end(animate=True)
+
+    async def action_load_more(self) -> None:
+        """Load older messages (pagination)."""
+        await self._load_more_messages()
+
+    async def _load_more_messages(self) -> None:
+        """Load more messages before the oldest currently loaded."""
+        if not self._has_more or self._loading_more or not self._current_chat:
+            return
+
+        if self._oldest_rowid is None:
+            return
+
+        from iuselinux.tui.app import IMessageApp
+
+        app = self.app
+        if not isinstance(app, IMessageApp):
+            return
+
+        self._loading_more = True
+        try:
+            # Load messages before the oldest we have
+            older_messages = await app.api.get_messages(
+                self._current_chat.rowid,
+                limit=PAGE_SIZE,
+                before_rowid=self._oldest_rowid,
+            )
+
+            if not older_messages:
+                self._has_more = False
+                self._loading_more = False
+                # Remove load more hint
+                hints = self.query(".load-more-hint")
+                for h in hints:
+                    h.remove()
+                return
+
+            # Add to our message list and update tracking
+            new_rowids = {m.rowid for m in older_messages}
+            self._seen_rowids.update(new_rowids)
+            self._messages.extend(older_messages)
+            self._oldest_rowid = min(m.rowid for m in older_messages)
+            self._has_more = len(older_messages) == PAGE_SIZE
+
+            # Re-render without scrolling to bottom
+            self._render_messages(scroll_to_bottom=False)
+
+        except Exception as e:
+            logger.error("Failed to load more messages: %s", e)
+        finally:
+            self._loading_more = False
+
+    def on_scroll_y(self) -> None:
+        """Handle scroll events to trigger pagination."""
+        # If scrolled near the top, load more
+        if self.scroll_offset.y <= 50 and self._has_more and not self._loading_more:
+            self.run_worker(self._load_more_messages())
