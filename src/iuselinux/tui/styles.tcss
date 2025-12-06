@@ -1,0 +1,99 @@
+/* iMessage Gateway TUI Styles */
+
+Screen {
+    background: $surface;
+}
+
+/* Sidebar */
+#sidebar {
+    background: $surface-darken-1;
+}
+
+ChatList {
+    border: round $primary;
+    height: 1fr;
+}
+
+ChatList:focus {
+    border: round $accent;
+}
+
+ChatList > .option-list--option-highlighted {
+    background: $primary;
+    color: $text;
+}
+
+/* Message pane */
+#main-pane {
+    background: $surface;
+}
+
+MessageList {
+    border: round $primary;
+    padding: 1;
+}
+
+MessageList:focus {
+    border: round $accent;
+}
+
+MessageList .placeholder {
+    color: $text-muted;
+    text-style: italic;
+    text-align: center;
+    margin-top: 2;
+}
+
+/* Message bubbles */
+.message-bubble {
+    margin: 0 1;
+    padding: 0 1;
+}
+
+.message-sent {
+    background: $primary;
+    color: $text;
+    text-align: right;
+    margin-left: 10;
+}
+
+.message-received {
+    background: $surface-darken-2;
+    color: $text;
+    text-align: left;
+    margin-right: 10;
+}
+
+.message-timestamp {
+    color: $text-muted;
+    text-style: italic;
+}
+
+/* Input area */
+MessageInput {
+    border: round $primary;
+    min-height: 3;
+    max-height: 8;
+}
+
+MessageInput:focus {
+    border: round $accent;
+}
+
+/* Footer hints */
+Footer {
+    background: $surface-darken-2;
+}
+
+/* Settings screen */
+SettingsScreen #settings-container {
+    background: $surface;
+}
+
+SettingsScreen Input {
+    width: 100%;
+}
+
+SettingsScreen Select {
+    width: 100%;
+}

@@ -1,11 +1,15 @@
 # iuselinux
 
-A web interface for reading and sending iMessages on macOS.
+A web and terminal interface for reading and sending iMessages on macOS.
 
 ## Installation
 
 ```bash
+# Server only (web UI)
 uv pip install iuselinux
+
+# With TUI client
+uv pip install iuselinux[tui]
 ```
 
 For development (includes pytest):
@@ -16,19 +20,38 @@ uv pip install -e ".[dev]"
 
 ## Usage
 
-Start the server:
+### Web Interface
+
+Start the server on your Mac:
 
 ```bash
 iuselinux
 ```
 
-Or run directly with uvicorn:
+Then open http://127.0.0.1:8000 in your browser.
+
+### Terminal UI (TUI)
+
+The TUI client connects to the server remotely - perfect for accessing iMessage from another machine via SSH tunnel or VPN.
 
 ```bash
-uv run uvicorn imessage_gateway.api:app --host 127.0.0.1 --port 8000
+# On the remote machine (requires iuselinux[tui])
+iuselinux-tui --host localhost --port 8000
 ```
 
-Then open http://127.0.0.1:8000 in your browser.
+Options:
+- `--host`, `-h`: Server hostname (default: localhost)
+- `--port`, `-p`: Server port (default: 8000)
+- `--token`, `-t`: API token (or set `IUSELINUX_TOKEN` env var)
+
+Key bindings:
+- `j`/`k`: Navigate up/down
+- `g`/`G`: Jump to first/last
+- `Enter`: Select chat / Send message
+- `Escape`: Focus chat list
+- `/`: Search (coming soon)
+- `n`: New message (coming soon)
+- `q`: Quit
 
 ## Features
 

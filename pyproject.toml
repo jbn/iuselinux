@@ -35,6 +35,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+tui = [
+    "textual>=0.89.0",
+    "httpx>=0.28.0",
+    "websockets>=15.0.1",
+]
 dev = [
     "pytest>=9.0.1",
     "httpx>=0.28.0",
@@ -48,6 +53,7 @@ Issues = "https://github.com/jbn/iuselinux/issues"
 
 [project.scripts]
 iuselinux = "iuselinux.api:main"
+iuselinux-tui = "iuselinux.tui:main"
 
 [build-system]
 requires = ["hatchling"]
