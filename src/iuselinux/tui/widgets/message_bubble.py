@@ -14,11 +14,14 @@ if TYPE_CHECKING:
 class MessageBubble(Static):
     """A single message bubble."""
 
-    def __init__(self, message: Message) -> None:
+    def __init__(self, message: Message, pending: bool = False) -> None:
         self.message = message
+        self.pending = pending
         # Determine style based on sender
         classes = "message-bubble "
         classes += "message-sent" if message.is_from_me else "message-received"
+        if pending:
+            classes += " pending"
         super().__init__(classes=classes)
 
     def compose_content(self) -> Text:
@@ -34,12 +37,20 @@ class MessageBubble(Static):
         # Message text
         content.append(msg.display_text)
 
-        # Timestamp
-        if msg.timestamp:
+        # Timestamp or pending indicator
+        if self.pending:
+            content.append("\nSending...", style="dim italic")
+        elif msg.timestamp:
             time_str = msg.timestamp.strftime("%H:%M")
             content.append(f"\n{time_str}", style="dim italic")
 
         return content
+
+    def confirm(self) -> None:
+        """Confirm the message was sent - remove pending state."""
+        self.pending = False
+        self.remove_class("pending")
+        self.update(self.compose_content())
 
     def on_mount(self) -> None:
         """Render the message when mounted."""

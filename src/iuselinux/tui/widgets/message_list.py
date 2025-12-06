@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from textual.binding import Binding
@@ -12,6 +13,8 @@ from iuselinux.tui.widgets.message_bubble import MessageBubble
 
 if TYPE_CHECKING:
     from iuselinux.tui.models import Chat, Message
+
+logger = logging.getLogger(__name__)
 
 
 class MessageList(VerticalScroll):
@@ -29,6 +32,7 @@ class MessageList(VerticalScroll):
         self.border_title = "Messages"
         self._current_chat: Chat | None = None
         self._messages: list[Message] = []
+        self._pending_texts: set[str] = set()  # Track pending message texts
 
     def on_mount(self) -> None:
         """Show placeholder when mounted."""
@@ -44,6 +48,7 @@ class MessageList(VerticalScroll):
         from iuselinux.tui.app import IMessageApp
 
         self._current_chat = chat
+        self._pending_texts.clear()  # Clear pending messages when switching chats
         self.border_title = f"Messages - {chat.title}"
         self._show_placeholder("Loading messages...")
 
@@ -73,11 +78,49 @@ class MessageList(VerticalScroll):
         self.scroll_end(animate=False)
 
     def add_message(self, message: Message) -> None:
-        """Add a new message to the display."""
+        """Add a new message from WebSocket (confirmed message)."""
+        # Check if this confirms a pending message
+        msg_text = message.text or ""
+        if message.is_from_me and msg_text in self._pending_texts:
+            logger.debug("Confirming pending message: %r", msg_text[:30])
+            self._pending_texts.discard(msg_text)
+            # Find and confirm the pending bubble
+            for bubble in self.query(MessageBubble):
+                if bubble.pending and bubble.message.text == msg_text:
+                    bubble.message = message  # Update with confirmed message
+                    bubble.confirm()
+                    return
+
         self._messages.insert(0, message)  # Add to start (newest)
         # Remove placeholder if present
         placeholders = self.query(".placeholder")
         for p in placeholders:
             p.remove()
         self.mount(MessageBubble(message))
+        self.scroll_end(animate=True)
+
+    def add_pending_message(self, text: str) -> None:
+        """Add a pending (optimistic) message while sending."""
+        from datetime import datetime
+        from iuselinux.tui.models import Message
+
+        # Create a temporary message object
+        pending_msg = Message(
+            rowid=-1,  # Temporary ID
+            guid="pending",
+            text=text,
+            timestamp=datetime.now(),
+            is_from_me=True,
+            handle_id=None,
+            chat_id=self._current_chat.rowid if self._current_chat else None,
+        )
+
+        self._pending_texts.add(text)
+
+        # Remove placeholder if present
+        placeholders = self.query(".placeholder")
+        for p in placeholders:
+            p.remove()
+
+        self.mount(MessageBubble(pending_msg, pending=True))
         self.scroll_end(animate=True)

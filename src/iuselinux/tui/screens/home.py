@@ -101,13 +101,15 @@ class HomeScreen(Screen[None]):
         else:
             recipient = self._current_chat.identifier or self._current_chat.guid
 
+        # Add pending message immediately (optimistic UI)
+        message_list = self.query_one(MessageList)
+        message_list.add_pending_message(event.text)
+
         try:
             success = await app.api.send_message(recipient, event.text)
-            if success:
-                self.notify("Message sent")
-                # WebSocket will push the new message, no need to refresh
-            else:
+            if not success:
                 self.notify("Failed to send message", severity="error")
+            # WebSocket will push the confirmed message
         except Exception as e:
             self.notify(f"Error: {e}", severity="error")
 

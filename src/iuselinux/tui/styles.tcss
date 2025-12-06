@@ -57,6 +57,11 @@ MessageList .placeholder {
     margin-left: 10;
 }
 
+/* Pending (optimistic) message - semi-transparent until confirmed */
+.message-bubble.pending {
+    opacity: 0.6;
+}
+
 .message-received {
     background: $surface-darken-2;
     color: $text;
