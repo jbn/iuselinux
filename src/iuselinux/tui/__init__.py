@@ -52,11 +52,27 @@ def main() -> None:
         is_flag=True,
         help="Save host/port/token to config for future sessions",
     )
-    def run_tui(host: str, port: int, token: str | None, save: bool) -> None:
+    @click.option(
+        "--debug",
+        is_flag=True,
+        help="Enable debug logging to /tmp/imessage-tui.log",
+    )
+    def run_tui(host: str, port: int, token: str | None, save: bool, debug: bool) -> None:
         """iMessage Gateway TUI client.
 
         Connect to a running iMessage Gateway server and interact via terminal UI.
         """
+        # Configure logging before imports
+        if debug:
+            import logging
+            logging.basicConfig(
+                level=logging.DEBUG,
+                format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+                filename="/tmp/imessage-tui.log",
+                filemode="w",
+            )
+            logging.getLogger("iuselinux").setLevel(logging.DEBUG)
+
         try:
             from iuselinux.tui.app import IMessageApp
         except ImportError as e:

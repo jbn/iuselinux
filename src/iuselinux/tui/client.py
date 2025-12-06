@@ -365,8 +365,10 @@ class WebSocketClient:
                 data = json.loads(msg)
 
                 if data.get("type") == "messages":
+                    raw_data = data.get("data", [])
+                    logger.debug("WebSocket received %d messages", len(raw_data))
                     messages = [
-                        parser._parse_message(m) for m in data.get("data", [])
+                        parser._parse_message(m) for m in raw_data
                     ]
                     if messages:
                         on_messages(messages)

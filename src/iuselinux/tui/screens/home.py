@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
@@ -110,6 +113,11 @@ class HomeScreen(Screen[None]):
 
     def on_new_messages(self, event: NewMessages) -> None:
         """Handle new messages from WebSocket."""
+        logger.debug(
+            "Received %d new messages, current_chat=%s",
+            len(event.messages),
+            self._current_chat.rowid if self._current_chat else None,
+        )
         if not self._current_chat:
             return
 
@@ -119,6 +127,7 @@ class HomeScreen(Screen[None]):
         # Add messages that belong to the current chat
         for msg in event.messages:
             if msg.chat_id == self._current_chat.rowid:
+                logger.debug("Adding message %d to current chat", msg.rowid)
                 message_list.add_message(msg)
 
         # Refresh chat list to update order/preview

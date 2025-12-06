@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from textual.app import App
+
+logger = logging.getLogger(__name__)
 from textual.binding import Binding
 from textual.message import Message as TextualMessage
 
@@ -66,7 +70,10 @@ class IMessageApp(App[None]):
 
         async def ws_listener() -> None:
             def on_messages(messages: list[Message]) -> None:
-                self.post_message(NewMessages(messages))
+                logger.debug("WebSocket callback: %d messages", len(messages))
+                self.call_from_thread(
+                    lambda: self.post_message(NewMessages(messages))
+                )
 
             def on_connected() -> None:
                 self.call_from_thread(
@@ -90,6 +97,13 @@ class IMessageApp(App[None]):
         """Called when app is unmounting."""
         self.ws.stop()
         await self.ws.disconnect()
+
+    def on_new_messages(self, event: NewMessages) -> None:
+        """Forward new messages to the current screen."""
+        logger.debug("Forwarding %d messages to screen", len(event.messages))
+        screen = self.screen
+        if screen is not None:
+            screen.post_message(event)
 
     async def _check_connection(self) -> None:
         """Check if we can connect to the server."""
