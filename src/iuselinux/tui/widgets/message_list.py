@@ -33,6 +33,7 @@ class MessageList(VerticalScroll):
         self._current_chat: Chat | None = None
         self._messages: list[Message] = []
         self._pending_texts: set[str] = set()  # Track pending message texts
+        self._seen_rowids: set[int] = set()  # Track seen message rowids to prevent duplicates
 
     def on_mount(self) -> None:
         """Show placeholder when mounted."""
@@ -49,6 +50,7 @@ class MessageList(VerticalScroll):
 
         self._current_chat = chat
         self._pending_texts.clear()  # Clear pending messages when switching chats
+        self._seen_rowids.clear()  # Clear seen rowids when switching chats
         self.border_title = f"Messages - {chat.title}"
         self._show_placeholder("Loading messages...")
 
@@ -59,6 +61,8 @@ class MessageList(VerticalScroll):
         try:
             messages = await app.api.get_messages(chat.rowid, limit=100)
             self._messages = messages
+            # Track all loaded message rowids
+            self._seen_rowids = {m.rowid for m in messages}
             self._render_messages()
         except Exception as e:
             self._show_placeholder(f"Error loading messages: {e}")
@@ -79,18 +83,31 @@ class MessageList(VerticalScroll):
 
     def add_message(self, message: Message) -> None:
         """Add a new message from WebSocket (confirmed message)."""
+        # Skip if we've already seen this message
+        if message.rowid in self._seen_rowids:
+            logger.debug("Skipping duplicate message rowid=%d", message.rowid)
+            return
+
         # Check if this confirms a pending message
         msg_text = message.text or ""
+        logger.debug(
+            "add_message: rowid=%d is_from_me=%s text=%r pending_texts=%r",
+            message.rowid, message.is_from_me, msg_text[:30], self._pending_texts
+        )
         if message.is_from_me and msg_text in self._pending_texts:
             logger.debug("Confirming pending message: %r", msg_text[:30])
             self._pending_texts.discard(msg_text)
+            self._seen_rowids.add(message.rowid)
             # Find and confirm the pending bubble
             for bubble in self.query(MessageBubble):
                 if bubble.pending and bubble.message.text == msg_text:
                     bubble.message = message  # Update with confirmed message
                     bubble.confirm()
+                    logger.debug("Confirmed pending bubble")
                     return
+            logger.debug("No matching pending bubble found!")
 
+        self._seen_rowids.add(message.rowid)
         self._messages.insert(0, message)  # Add to start (newest)
         # Remove placeholder if present
         placeholders = self.query(".placeholder")
