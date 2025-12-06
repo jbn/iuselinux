@@ -341,6 +341,7 @@ class WebSocketClient:
         """Listen for messages. Reconnects automatically on disconnect."""
         # Create a dummy APIClient for parsing (shares parsing logic)
         parser = APIClient(self.host, self.port, self.token)
+        self._running = True
 
         while self._running:
             if not self._ws:
