@@ -38,6 +38,7 @@ dependencies = [
 tui = [
     "textual>=0.89.0",
     "httpx>=0.28.0",
+    "websockets>=15.0.1",
 ]
 dev = [
     "pytest>=9.0.1",

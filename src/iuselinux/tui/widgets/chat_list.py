@@ -123,3 +123,7 @@ class ChatList(OptionList):
         """Jump to last item."""
         if self.option_count > 0:
             self.highlighted = self.option_count - 1
+
+    def refresh_chats(self) -> None:
+        """Trigger a chat list refresh (called when new messages arrive)."""
+        self.run_worker(self.load_chats())

@@ -14,6 +14,7 @@ from iuselinux.tui.widgets.message_list import MessageList
 from iuselinux.tui.widgets.message_input import MessageInput, MessageSubmitted
 
 if TYPE_CHECKING:
+    from iuselinux.tui.app import NewMessages
     from iuselinux.tui.models import Chat
 
 
@@ -101,13 +102,27 @@ class HomeScreen(Screen[None]):
             success = await app.api.send_message(recipient, event.text)
             if success:
                 self.notify("Message sent")
-                # Refresh messages to show the sent message
-                message_list = self.query_one(MessageList)
-                await message_list.load_chat(self._current_chat)
+                # WebSocket will push the new message, no need to refresh
             else:
                 self.notify("Failed to send message", severity="error")
         except Exception as e:
             self.notify(f"Error: {e}", severity="error")
+
+    def on_new_messages(self, event: NewMessages) -> None:
+        """Handle new messages from WebSocket."""
+        if not self._current_chat:
+            return
+
+        message_list = self.query_one(MessageList)
+        chat_list = self.query_one(ChatList)
+
+        # Add messages that belong to the current chat
+        for msg in event.messages:
+            if msg.chat_id == self._current_chat.rowid:
+                message_list.add_message(msg)
+
+        # Refresh chat list to update order/preview
+        chat_list.refresh_chats()
 
     def action_focus_chat_list(self) -> None:
         """Focus the chat list."""

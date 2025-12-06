@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from typing import Any
 
@@ -16,6 +19,8 @@ from iuselinux.tui.models import (
     Participant,
     SearchResult,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class APIError(Exception):
@@ -269,3 +274,119 @@ class APIClient:
             participant_contacts=participant_contacts,
             contact=self._parse_contact(data.get("contact")),
         )
+
+
+class WebSocketClient:
+    """WebSocket client for real-time message updates."""
+
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 8000,
+        token: str | None = None,
+        chat_id: int | None = None,
+    ) -> None:
+        """Initialize the WebSocket client."""
+        self.host = host
+        self.port = port
+        self.token = token
+        self.chat_id = chat_id
+        self._ws: Any = None
+        self._running = False
+        self._reconnect_delay = 1.0
+        self._max_reconnect_delay = 30.0
+
+    @property
+    def ws_url(self) -> str:
+        """Get WebSocket URL."""
+        url = f"ws://{self.host}:{self.port}/ws"
+        params = []
+        if self.chat_id is not None:
+            params.append(f"chat_id={self.chat_id}")
+        if self.token:
+            params.append(f"token={self.token}")
+        if params:
+            url += "?" + "&".join(params)
+        return url
+
+    async def connect(self) -> bool:
+        """Connect to WebSocket. Returns True on success."""
+        try:
+            import websockets
+
+            self._ws = await websockets.connect(self.ws_url)
+            self._running = True
+            self._reconnect_delay = 1.0  # Reset on successful connect
+            logger.info("WebSocket connected to %s", self.ws_url)
+            return True
+        except Exception as e:
+            logger.error("WebSocket connection failed: %s", e)
+            return False
+
+    async def disconnect(self) -> None:
+        """Disconnect from WebSocket."""
+        self._running = False
+        if self._ws:
+            await self._ws.close()
+            self._ws = None
+            logger.info("WebSocket disconnected")
+
+    async def listen(
+        self,
+        on_messages: Callable[[list[Message]], None],
+        on_error: Callable[[str], None] | None = None,
+        on_connected: Callable[[], None] | None = None,
+        on_disconnected: Callable[[], None] | None = None,
+    ) -> None:
+        """Listen for messages. Reconnects automatically on disconnect."""
+        # Create a dummy APIClient for parsing (shares parsing logic)
+        parser = APIClient(self.host, self.port, self.token)
+
+        while self._running:
+            if not self._ws:
+                if not await self.connect():
+                    if on_error:
+                        on_error(f"Connection failed, retrying in {self._reconnect_delay}s")
+                    await asyncio.sleep(self._reconnect_delay)
+                    self._reconnect_delay = min(
+                        self._reconnect_delay * 2, self._max_reconnect_delay
+                    )
+                    continue
+                if on_connected:
+                    on_connected()
+
+            try:
+                import websockets
+
+                msg = await self._ws.recv()
+                import json
+
+                data = json.loads(msg)
+
+                if data.get("type") == "messages":
+                    messages = [
+                        parser._parse_message(m) for m in data.get("data", [])
+                    ]
+                    if messages:
+                        on_messages(messages)
+                elif data.get("type") == "error":
+                    if on_error:
+                        on_error(data.get("message", "Unknown error"))
+                # Ignore pings
+
+            except websockets.ConnectionClosed:
+                logger.info("WebSocket connection closed")
+                self._ws = None
+                if on_disconnected:
+                    on_disconnected()
+            except Exception as e:
+                logger.error("WebSocket error: %s", e)
+                if on_error:
+                    on_error(str(e))
+                self._ws = None
+                if on_disconnected:
+                    on_disconnected()
+
+    def stop(self) -> None:
+        """Stop listening (call from another task)."""
+        self._running = False
