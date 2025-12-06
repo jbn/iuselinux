@@ -81,8 +81,6 @@ class HomeScreen(Screen[None]):
 
     async def on_message_submitted(self, event: MessageSubmitted) -> None:
         """Handle message submission."""
-        import asyncio
-
         from iuselinux.tui.app import IMessageApp
 
         if not self._current_chat:
@@ -103,8 +101,6 @@ class HomeScreen(Screen[None]):
             success = await app.api.send_message(recipient, event.text)
             if success:
                 self.notify("Message sent")
-                # Wait briefly for message to appear in iMessage database
-                await asyncio.sleep(0.5)
                 # Refresh messages to show the sent message
                 message_list = self.query_one(MessageList)
                 await message_list.load_chat(self._current_chat)
