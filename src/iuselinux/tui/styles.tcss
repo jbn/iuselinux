@@ -84,3 +84,16 @@ MessageInput:focus {
 Footer {
     background: $surface-darken-2;
 }
+
+/* Settings screen */
+SettingsScreen #settings-container {
+    background: $surface;
+}
+
+SettingsScreen Input {
+    width: 100%;
+}
+
+SettingsScreen Select {
+    width: 100%;
+}

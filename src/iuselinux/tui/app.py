@@ -64,7 +64,9 @@ class IMessageApp(App[None]):
 
     def action_settings(self) -> None:
         """Show settings screen."""
-        self.notify("Settings coming soon")
+        from iuselinux.tui.screens.settings import SettingsScreen
+
+        self.push_screen(SettingsScreen())
 
     def action_search(self) -> None:
         """Show search screen."""

@@ -16,18 +16,26 @@ def main() -> None:
         )
         sys.exit(1)
 
+    from iuselinux.config import get_config
+
+    # Load saved settings as defaults
+    config = get_config()
+    default_host = config.get("tui_server_host", "localhost")
+    default_port = config.get("tui_server_port", 8000)
+    default_token = config.get("api_token") or None
+
     @click.command()
     @click.option(
         "--host",
         "-h",
-        default="localhost",
+        default=default_host,
         help="Server hostname",
         show_default=True,
     )
     @click.option(
         "--port",
         "-p",
-        default=8000,
+        default=default_port,
         type=int,
         help="Server port",
         show_default=True,
@@ -35,11 +43,16 @@ def main() -> None:
     @click.option(
         "--token",
         "-t",
-        default=None,
+        default=default_token,
         help="API authentication token",
         envvar="IUSELINUX_TOKEN",
     )
-    def run_tui(host: str, port: int, token: str | None) -> None:
+    @click.option(
+        "--save",
+        is_flag=True,
+        help="Save host/port/token to config for future sessions",
+    )
+    def run_tui(host: str, port: int, token: str | None, save: bool) -> None:
         """iMessage Gateway TUI client.
 
         Connect to a running iMessage Gateway server and interact via terminal UI.
@@ -53,6 +66,19 @@ def main() -> None:
             )
             print(f"Missing: {e.name}", file=sys.stderr)
             sys.exit(1)
+
+        # Save settings if requested
+        if save:
+            from iuselinux.config import update_config
+
+            updates = {
+                "tui_server_host": host,
+                "tui_server_port": port,
+            }
+            if token:
+                updates["api_token"] = token
+            update_config(updates)
+            print(f"Saved settings: {host}:{port}", file=sys.stderr)
 
         app = IMessageApp(host=host, port=port, token=token)
         app.run()
