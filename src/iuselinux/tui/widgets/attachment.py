@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from rich.console import RenderableType
 from rich.text import Text
+from textual.binding import Binding
 from textual.widgets import Static
 
 from iuselinux.tui.image_renderer import get_renderer
@@ -23,11 +24,21 @@ class AttachmentWidget(Static):
 
     For image attachments in terminals with graphics support,
     displays inline images. Otherwise shows a text placeholder.
+
+    Press 'o' or Enter to open the attachment in an external app.
     """
 
     # Default dimensions for inline images (in terminal cells)
     DEFAULT_IMAGE_WIDTH = 40
     DEFAULT_IMAGE_HEIGHT = 15
+
+    # Allow focus and add keybindings
+    can_focus = True
+
+    BINDINGS = [
+        Binding("enter", "open_attachment", "Open", show=True),
+        Binding("o", "open_attachment", "Open", show=False),
+    ]
 
     def __init__(
         self,
@@ -49,6 +60,7 @@ class AttachmentWidget(Static):
         self._image_data: bytes | None = None
         self._load_error: str | None = None
         self._loading: bool = False
+        self._opening: bool = False
 
     def compose_placeholder(self) -> Text:
         """Create a placeholder for the attachment."""
@@ -131,6 +143,47 @@ class AttachmentWidget(Static):
         """Show placeholder text."""
         self._loading = False
         self.update(self.compose_placeholder())
+
+    async def action_open_attachment(self) -> None:
+        """Open the attachment in an external application."""
+        if self._opening:
+            return
+
+        from iuselinux.tui.app import IMessageApp
+        from iuselinux.tui.attachment_utils import (
+            download_attachment_to_temp,
+            open_file_with_system_app,
+        )
+
+        app = self.app
+        if not isinstance(app, IMessageApp):
+            self.notify("Cannot open attachment", severity="error")
+            return
+
+        self._opening = True
+        filename = self.attachment.filename or "attachment"
+        self.notify(f"Opening {filename}...")
+
+        try:
+            # Download to temp file
+            file_path = await download_attachment_to_temp(
+                self.attachment, app.api
+            )
+
+            if file_path is None:
+                self.notify("Failed to download attachment", severity="error")
+                return
+
+            # Open with system app
+            success = open_file_with_system_app(file_path)
+            if not success:
+                self.notify("Failed to open attachment", severity="error")
+
+        except Exception as e:
+            logger.error("Failed to open attachment: %s", e)
+            self.notify(f"Error: {e}", severity="error")
+        finally:
+            self._opening = False
 
 
 class InlineImage:
