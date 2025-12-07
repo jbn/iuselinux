@@ -171,15 +171,7 @@ class SearchScreen(Screen[None]):
         border: round $surface;
     }
 
-    #no-results {
-        width: 100%;
-        height: auto;
-        padding: 2;
-        text-align: center;
-        color: $text-muted;
-    }
-
-    #loading {
+    .search-placeholder {
         width: 100%;
         height: auto;
         padding: 2;
@@ -217,7 +209,7 @@ class SearchScreen(Screen[None]):
                 )
             yield Static("Type to search", id="search-status")
             with VerticalScroll(id="results-container"):
-                yield Static("Enter a search term to find messages", id="no-results")
+                yield Static("Enter a search term to find messages", classes="search-placeholder")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -286,7 +278,7 @@ class SearchScreen(Screen[None]):
         """Show loading indicator."""
         container = self.query_one("#results-container", VerticalScroll)
         container.remove_children()
-        container.mount(Static("Searching...", id="loading"))
+        container.mount(Static("Searching...", classes="search-placeholder"))
 
     def _clear_results(self) -> None:
         """Clear the results display."""
@@ -294,7 +286,7 @@ class SearchScreen(Screen[None]):
         self._total_count = 0
         container = self.query_one("#results-container", VerticalScroll)
         container.remove_children()
-        container.mount(Static("Enter a search term to find messages", id="no-results"))
+        container.mount(Static("Enter a search term to find messages", classes="search-placeholder"))
 
     def _display_results(self, query: str) -> None:
         """Display search results."""
@@ -304,7 +296,7 @@ class SearchScreen(Screen[None]):
         if not self._results:
             self._update_status("No results found")
             container.mount(
-                Static(f"No messages found matching '{query}'", id="no-results")
+                Static(f"No messages found matching '{query}'", classes="search-placeholder")
             )
             return
 
