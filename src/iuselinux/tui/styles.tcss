@@ -69,6 +69,12 @@ MessageList .load-more-hint {
     opacity: 0.6;
 }
 
+/* Failed message - red tint */
+.message-bubble.failed {
+    background: $error-darken-2;
+    opacity: 1.0;
+}
+
 .message-received {
     background: $surface-darken-2;
     color: $text;

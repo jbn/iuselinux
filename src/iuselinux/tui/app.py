@@ -157,7 +157,9 @@ class IMessageApp(App[None]):
 
     def action_compose(self) -> None:
         """Show compose screen for new message."""
-        self.notify("Compose coming soon")
+        from iuselinux.tui.screens.compose import ComposeScreen
+
+        self.push_screen(ComposeScreen())
 
     def action_toggle_theme(self) -> None:
         """Cycle through theme modes."""

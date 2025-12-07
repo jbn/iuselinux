@@ -145,8 +145,11 @@ class MessageList(VerticalScroll):
         self.mount(MessageBubble(message, is_group=is_group))
         self.scroll_end(animate=True)
 
-    def add_pending_message(self, text: str) -> None:
-        """Add a pending (optimistic) message while sending."""
+    def add_pending_message(self, text: str) -> MessageBubble:
+        """Add a pending (optimistic) message while sending.
+
+        Returns the MessageBubble widget so it can be updated on success/failure.
+        """
         from datetime import datetime
         from iuselinux.tui.models import Message
 
@@ -169,8 +172,19 @@ class MessageList(VerticalScroll):
             p.remove()
 
         is_group = self._current_chat.is_group if self._current_chat else False
-        self.mount(MessageBubble(pending_msg, pending=True, is_group=is_group))
+        bubble = MessageBubble(pending_msg, pending=True, is_group=is_group)
+        self.mount(bubble)
         self.scroll_end(animate=True)
+        return bubble
+
+    def mark_message_failed(self, text: str) -> None:
+        """Mark a pending message as failed to send."""
+        # Find the pending bubble with this text
+        for bubble in self.query(MessageBubble):
+            if bubble.pending and bubble.message.text == text:
+                bubble.mark_failed()
+                # Keep in pending texts so it can be retried
+                return
 
     async def action_load_more(self) -> None:
         """Load older messages (pagination)."""

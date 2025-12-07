@@ -45,11 +45,13 @@ class MessageBubble(Static):
         self,
         message: Message,
         pending: bool = False,
+        failed: bool = False,
         is_group: bool = False,
         show_sender: bool = True,
     ) -> None:
         self.message = message
         self.pending = pending
+        self.failed = failed
         self.is_group = is_group
         self.show_sender = show_sender
         # Determine style based on sender
@@ -57,6 +59,8 @@ class MessageBubble(Static):
         classes += "message-sent" if message.is_from_me else "message-received"
         if pending:
             classes += " pending"
+        if failed:
+            classes += " failed"
         super().__init__(classes=classes)
 
     def compose_content(self) -> Text:
@@ -72,9 +76,11 @@ class MessageBubble(Static):
         # Message text
         content.append(msg.display_text)
 
-        # Timestamp or pending indicator
-        if self.pending:
-            content.append("  ⏳", style="dim")
+        # Timestamp, pending, or failed indicator
+        if self.failed:
+            content.append("  ❌ Failed", style="bold red")
+        elif self.pending:
+            content.append("  ⏳ Sending...", style="dim")
         elif msg.timestamp:
             time_str = format_message_time(msg.timestamp)
             content.append(f"  {time_str}", style="dim italic")
@@ -84,7 +90,17 @@ class MessageBubble(Static):
     def confirm(self) -> None:
         """Confirm the message was sent - remove pending state."""
         self.pending = False
+        self.failed = False
         self.remove_class("pending")
+        self.remove_class("failed")
+        self.update(self.compose_content())
+
+    def mark_failed(self) -> None:
+        """Mark the message as failed to send."""
+        self.pending = False
+        self.failed = True
+        self.remove_class("pending")
+        self.add_class("failed")
         self.update(self.compose_content())
 
     def on_mount(self) -> None:

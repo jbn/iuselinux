@@ -126,10 +126,12 @@ class HomeScreen(Screen[None]):
         try:
             success = await app.api.send_message(recipient, event.text)
             if not success:
+                message_list.mark_message_failed(event.text)
                 self.notify("Failed to send message", severity="error")
             # WebSocket will push the confirmed message
         except Exception as e:
-            self.notify(f"Error: {e}", severity="error")
+            message_list.mark_message_failed(event.text)
+            self.notify(f"Send failed: {e}", severity="error")
 
     def on_new_messages(self, event: NewMessages) -> None:
         """Handle new messages from WebSocket."""
