@@ -153,7 +153,9 @@ class IMessageApp(App[None]):
 
     def action_search(self) -> None:
         """Show search screen."""
-        self.notify("Search coming soon")
+        from iuselinux.tui.screens.search import SearchScreen
+
+        self.push_screen(SearchScreen())
 
     def action_compose(self) -> None:
         """Show compose screen for new message."""
