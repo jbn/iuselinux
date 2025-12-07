@@ -96,6 +96,23 @@ class APIClient:
         except httpx.TimeoutException as e:
             raise ConnectionError(f"Request timed out: {e}") from e
 
+    async def _request_bytes(
+        self,
+        method: str,
+        path: str,
+        **kwargs: Any,
+    ) -> bytes:
+        """Make an HTTP request and return raw bytes."""
+        try:
+            response = await self.client.request(method, path, **kwargs)
+            if response.status_code >= 400:
+                raise APIError(response.status_code, response.text)
+            return response.content
+        except httpx.ConnectError as e:
+            raise ConnectionError(f"Cannot connect to {self.base_url}: {e}") from e
+        except httpx.TimeoutException as e:
+            raise ConnectionError(f"Request timed out: {e}") from e
+
     # Health check
 
     async def health(self) -> HealthStatus:
@@ -156,6 +173,34 @@ class APIClient:
             json={"recipient": recipient, "message": message},
         )
         return data.get("success", False)
+
+    # Attachments
+
+    async def get_attachment(self, url: str) -> bytes:
+        """Fetch attachment data from a URL.
+
+        Args:
+            url: The attachment URL (can be relative or absolute)
+
+        Returns:
+            Raw bytes of the attachment
+        """
+        # URLs from the API are relative, strip leading slash if present
+        path = url.lstrip("/")
+        return await self._request_bytes("GET", f"/{path}")
+
+    async def get_thumbnail(self, attachment: Attachment) -> bytes | None:
+        """Fetch thumbnail for an attachment if available.
+
+        Args:
+            attachment: The attachment to get thumbnail for
+
+        Returns:
+            Raw bytes of the thumbnail, or None if not available
+        """
+        if attachment.thumbnail_url:
+            return await self.get_attachment(attachment.thumbnail_url)
+        return None
 
     # Search
 
