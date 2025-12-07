@@ -82,6 +82,12 @@ MessageList .load-more-hint {
     margin-right: 10;
 }
 
+/* Highlighted message from search */
+.message-bubble.highlighted {
+    border: tall $warning;
+    background: $warning 15%;
+}
+
 .message-timestamp {
     color: $text-muted;
     text-style: italic;

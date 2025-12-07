@@ -150,3 +150,23 @@ class ChatList(OptionList):
     def refresh_chats(self) -> None:
         """Trigger a chat list refresh (called when new messages arrive)."""
         self.run_worker(self.load_chats())
+
+    def select_chat_by_rowid(self, rowid: int) -> bool:
+        """Programmatically select a chat by its rowid.
+
+        Returns True if the chat was found and selected.
+        """
+        chat_id = str(rowid)
+        if chat_id in self._chats:
+            # Find the option index
+            for i in range(self.option_count):
+                option = self.get_option_at_index(i)
+                if option.id == chat_id:
+                    self.highlighted = i
+                    self.post_message(ChatSelected(self._chats[chat_id]))
+                    return True
+        return False
+
+    def get_chat_by_rowid(self, rowid: int) -> Chat | None:
+        """Get a chat object by rowid, if loaded."""
+        return self._chats.get(str(rowid))

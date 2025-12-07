@@ -159,3 +159,18 @@ class HomeScreen(Screen[None]):
         """Focus the chat list."""
         chat_list = self.query_one(ChatList)
         chat_list.focus()
+
+    async def navigate_to_message(self, chat: Chat, message_rowid: int) -> None:
+        """Navigate to a specific message in a chat.
+
+        Loads the chat and scrolls to the target message with highlighting.
+        """
+        self._current_chat = chat
+        chat_list = self.query_one(ChatList)
+        message_list = self.query_one(MessageList)
+
+        # Select the chat in the sidebar (if it's loaded)
+        chat_list.select_chat_by_rowid(chat.rowid)
+
+        # Load messages centered around the target message
+        await message_list.load_chat_at_message(chat, message_rowid)

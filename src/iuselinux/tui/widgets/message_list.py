@@ -41,6 +41,7 @@ class MessageList(VerticalScroll):
         self._oldest_rowid: int | None = None  # For pagination
         self._has_more: bool = True  # Whether there are more messages to load
         self._loading_more: bool = False  # Prevent concurrent loads
+        self._highlight_rowid: int | None = None  # Message to highlight after render
 
     def on_mount(self) -> None:
         """Show placeholder when mounted."""
@@ -83,6 +84,52 @@ class MessageList(VerticalScroll):
         except Exception as e:
             self._show_placeholder(f"Error loading messages: {e}")
 
+    async def load_chat_at_message(self, chat: Chat, target_rowid: int) -> None:
+        """Load a chat and scroll to a specific message.
+
+        Loads messages around the target message to provide context.
+        """
+        from iuselinux.tui.app import IMessageApp
+
+        self._current_chat = chat
+        self._pending_texts.clear()
+        self._seen_rowids.clear()
+        self._oldest_rowid = None
+        self._has_more = True
+        self._loading_more = False
+        self._highlight_rowid = target_rowid
+        self.border_title = f"Messages - {chat.title}"
+        self._show_placeholder("Loading messages...")
+
+        app = self.app
+        if not isinstance(app, IMessageApp):
+            return
+
+        try:
+            # Load messages around the target
+            # First try to load messages including and after the target
+            messages_after = await app.api.get_messages(
+                chat.rowid, limit=PAGE_SIZE // 2, after_rowid=target_rowid - 1
+            )
+            # Then load messages before the target for context
+            messages_before = await app.api.get_messages(
+                chat.rowid, limit=PAGE_SIZE // 2, before_rowid=target_rowid + 1
+            )
+
+            # Combine and deduplicate
+            all_messages = {m.rowid: m for m in messages_before}
+            all_messages.update({m.rowid: m for m in messages_after})
+            self._messages = sorted(all_messages.values(), key=lambda m: m.rowid, reverse=True)
+
+            self._seen_rowids = set(all_messages.keys())
+            if self._messages:
+                self._oldest_rowid = min(m.rowid for m in self._messages)
+                self._has_more = len(messages_before) == PAGE_SIZE // 2
+
+            self._render_messages(scroll_to_bottom=False)
+        except Exception as e:
+            self._show_placeholder(f"Error loading messages: {e}")
+
     def _render_messages(self, scroll_to_bottom: bool = True) -> None:
         """Render all messages."""
         self.remove_children()
@@ -98,16 +145,31 @@ class MessageList(VerticalScroll):
 
         # Messages come in reverse chronological order, reverse for display
         prev_sender: str | None = None
+        highlight_bubble: MessageBubble | None = None
         for msg in reversed(self._messages):
             # Only show sender name if different from previous message
             show_sender = msg.handle_id != prev_sender
             prev_sender = msg.handle_id if not msg.is_from_me else None
 
-            self.mount(MessageBubble(msg, is_group=is_group, show_sender=show_sender))
+            bubble = MessageBubble(msg, is_group=is_group, show_sender=show_sender)
+            self.mount(bubble)
 
-        # Scroll to bottom for initial load
-        if scroll_to_bottom:
+            # Track bubble to highlight
+            if self._highlight_rowid is not None and msg.rowid == self._highlight_rowid:
+                highlight_bubble = bubble
+
+        # Handle scrolling and highlighting
+        if highlight_bubble is not None:
+            # Scroll to highlighted message and add visual highlight
+            highlight_bubble.add_class("highlighted")
+            self.call_after_refresh(lambda: self._scroll_to_widget(highlight_bubble))
+            self._highlight_rowid = None  # Clear after use
+        elif scroll_to_bottom:
             self.scroll_end(animate=False)
+
+    def _scroll_to_widget(self, widget: MessageBubble) -> None:
+        """Scroll to make a widget visible."""
+        widget.scroll_visible(animate=True)
 
     def add_message(self, message: Message) -> None:
         """Add a new message from WebSocket (confirmed message)."""

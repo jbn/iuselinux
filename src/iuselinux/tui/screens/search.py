@@ -323,13 +323,40 @@ class SearchScreen(Screen[None]):
         """Handle selection of a search result."""
         result = event.result
 
-        # Notify user of selection (navigation to be implemented later)
-        chat_name = result.chat.title if result.chat else "Unknown"
-        self.notify(f"Selected result in '{chat_name}'")
+        if not result.chat:
+            self.notify("Cannot navigate: chat information missing", severity="warning")
+            return
 
-        # For now, just go back to home screen
-        # TODO: Navigate to the specific message (iuselinux-qxk.7.4)
+        # Cancel any pending tasks
+        if self._debounce_task and not self._debounce_task.done():
+            self._debounce_task.cancel()
+        if self._search_task and not self._search_task.done():
+            self._search_task.cancel()
+
+        # Navigate to the message in the home screen
+        self.run_worker(self._navigate_to_result(result))
+
+    async def _navigate_to_result(self, result: SearchResult) -> None:
+        """Navigate to a search result in the home screen."""
+        from iuselinux.tui.screens.home import HomeScreen
+
+        # Pop back to home screen
         self.app.pop_screen()
+
+        # Get the home screen (should be at the bottom of the stack)
+        home_screen = None
+        for screen in self.app.screen_stack:
+            if isinstance(screen, HomeScreen):
+                home_screen = screen
+                break
+
+        if home_screen is None:
+            self.notify("Could not find home screen", severity="error")
+            return
+
+        # Navigate to the message
+        if result.chat:
+            await home_screen.navigate_to_message(result.chat, result.message.rowid)
 
     def action_cancel(self) -> None:
         """Cancel and go back."""
