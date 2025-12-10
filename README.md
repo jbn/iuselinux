@@ -102,7 +102,7 @@ autossh -M 0 -o "ServerAliveInterval 30" -o "ServerAliveCountMax 3" \
 Add to `~/.ssh/config` on your remote machine:
 
 ```
-Host imessage-gateway
+Host iuselinux
     HostName your-mac-ip
     User your-username
     LocalForward 8000 localhost:8000
@@ -113,7 +113,7 @@ Host imessage-gateway
 Then connect with just:
 
 ```bash
-ssh imessage-gateway
+ssh iuselinux
 ```
 
 ### Troubleshooting
@@ -125,13 +125,13 @@ ssh -L 9000:localhost:8000 user@your-mac-ip
 # Then access at http://localhost:9000
 ```
 
-**Connection refused**: Ensure the iMessage Gateway server is running on the Mac.
+**Connection refused**: Ensure the iUseLinux server is running on the Mac.
 
 **Permission denied**: Check your SSH key is added or use password auth.
 
 ## Remote Access via Tailscale
 
-[Tailscale](https://tailscale.com/) creates a secure mesh VPN that's easier to set up than traditional SSH tunnels.
+[Tailscale](https://tailscale.com/) creates a secure mesh VPN that's easier to set up than traditional SSH tunnels. Your Mac acts as the host and other devices on your tailnet can connect to it.
 
 ### Setup
 
@@ -144,32 +144,154 @@ ssh -L 9000:localhost:8000 user@your-mac-ip
    tailscale up
    ```
 
-3. Find your Mac's Tailscale IP:
+3. Find your Mac's Tailscale IP or hostname:
    ```bash
    tailscale ip -4
    # Example: 100.64.0.1
+
+   tailscale status
+   # Shows your machine name, e.g., "macbook" -> access via macbook.tailnet-name.ts.net
    ```
 
-4. Modify the server to listen on Tailscale interface (optional):
+### Option 1: Bind to Tailscale Interface Only (Recommended)
 
-   By default, the server binds to `127.0.0.1`. To access via Tailscale, you can either:
+Bind the server specifically to your Tailscale IP so only tailnet devices can connect:
 
-   **Option A**: Use SSH tunnel over Tailscale (recommended - keeps localhost binding):
-   ```bash
-   ssh -L 8000:localhost:8000 user@100.64.0.1
-   ```
+```bash
+# Get your Tailscale IP
+tailscale ip -4
+# Example: 100.64.0.1
 
-   **Option B**: Bind to all interfaces (less secure):
-   ```bash
-   uv run uvicorn imessage_gateway.api:app --host 0.0.0.0 --port 8000
-   ```
-   Then access at `http://100.64.0.1:8000`
+# On Mac - bind to Tailscale interface only
+iuselinux --host 100.64.0.1 --port 8000
+```
+
+Then access from any device on your tailnet:
+- Web UI: `http://100.64.0.1:8000` or `http://your-mac.tailnet-name.ts.net:8000`
+- TUI: `iuselinux-tui --host 100.64.0.1 --port 8000`
+
+**Security note**: Binding to the Tailscale IP (100.x.x.x) ensures only devices on your tailnet can connect. This is much safer than `--host 0.0.0.0` which exposes the server on all interfaces (local network, etc.).
+
+For additional security, set an API token:
+
+```bash
+iuselinux --host 100.64.0.1 --port 8000 --api-token YOUR_SECRET_TOKEN
+```
+
+### Option 2: Tailscale Serve (HTTPS with Magic DNS)
+
+Use `tailscale serve` to expose the server with automatic HTTPS and a clean URL:
+
+```bash
+# On Mac - start the server on localhost
+iuselinux --host 127.0.0.1 --port 8000
+
+# In another terminal - expose via Tailscale
+tailscale serve 8000
+```
+
+This gives you:
+- HTTPS URL like `https://your-mac.tailnet-name.ts.net`
+- Automatic TLS certificates
+- No need to remember port numbers
+
+Access from any device on your tailnet:
+- Web UI: `https://your-mac.tailnet-name.ts.net`
+- TUI: `iuselinux-tui --host your-mac.tailnet-name.ts.net --port 443`
+
+To stop serving:
+```bash
+tailscale serve off
+```
+
+To check current serve status:
+```bash
+tailscale serve status
+```
+
+### Option 3: SSH Tunnel over Tailscale (Overkill)
+
+If you're paranoid and want double encryption (Tailscale already encrypts everything):
+
+```bash
+# On Mac - start server on localhost only
+iuselinux --host 127.0.0.1 --port 8000
+
+# On remote machine - create tunnel over Tailscale
+ssh -L 8000:localhost:8000 user@100.64.0.1
+```
+
+Then access at `http://localhost:8000` on the remote machine.
+
+### Auto-Serve on Startup
+
+To automatically start both iuselinux and `tailscale serve` when you log in:
+
+**Using launchd (recommended for macOS):**
+
+Create `~/Library/LaunchAgents/com.iuselinux.server.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.iuselinux.server</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/path/to/iuselinux</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>8000</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/iuselinux.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/iuselinux.err</string>
+</dict>
+</plist>
+```
+
+Load it with:
+```bash
+launchctl load ~/Library/LaunchAgents/com.iuselinux.server.plist
+```
+
+Then set up `tailscale serve` to persist (it remembers the configuration):
+```bash
+tailscale serve --bg 8000
+```
+
+The `--bg` flag makes it persist across Tailscale restarts.
+
+**Using a shell script:**
+
+Create `~/bin/start-iuselinux.sh`:
+```bash
+#!/bin/bash
+# Start iuselinux server
+iuselinux --host 127.0.0.1 --port 8000 &
+
+# Wait for server to start
+sleep 2
+
+# Expose via Tailscale
+tailscale serve 8000
+```
 
 ### Security Notes
 
 - Tailscale traffic is encrypted end-to-end
-- Only devices in your Tailscale network can connect
+- Only devices in your tailnet can connect
 - Consider enabling [Tailscale ACLs](https://tailscale.com/kb/1018/acls) for fine-grained access control
+- The `tailscale serve` option provides HTTPS automatically
+- Always use `--api-token` when binding to 0.0.0.0 for an extra layer of security
 
 ## Remote Access via WireGuard
 
@@ -237,7 +359,7 @@ If your Mac is behind a router, forward UDP port 51820 to your Mac's local IP.
 
 ## macOS Permissions
 
-iMessage Gateway requires certain macOS permissions to function fully.
+iUseLinux requires certain macOS permissions to function fully.
 
 ### Full Disk Access (Required)
 
