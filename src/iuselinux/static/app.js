@@ -3,7 +3,7 @@ const chatTitle = document.getElementById('chat-title');
 const messagesDiv = document.getElementById('messages');
 const sendForm = document.getElementById('send-form');
 const messageInput = document.getElementById('message-input');
-const sendBtn = document.getElementById('send-btn');
+const emojiBtn = document.getElementById('emoji-btn');
 
 // Settings elements
 const settingsBtn = document.getElementById('settings-btn');
@@ -526,11 +526,11 @@ function selectChat(item) {
     chatTitle.textContent = name;
 
     messageInput.disabled = !currentRecipient;
-    sendBtn.disabled = !currentRecipient;
+    emojiBtn.disabled = !currentRecipient;
     if (!currentRecipient) {
         messageInput.placeholder = 'Cannot send (no recipient identifier)';
     } else {
-        messageInput.placeholder = 'Type a message...';
+        messageInput.placeholder = 'iMessage';
     }
 
     // Reset scroll and pagination state for new chat
@@ -2517,14 +2517,12 @@ function setAttachment(file) {
 
     pendingAttachment = file;
     renderAttachmentPreview(file);
-    updateSendButtonState();
 }
 
 function clearAttachment() {
     pendingAttachment = null;
     attachmentPreview.innerHTML = '';
     attachmentPreview.classList.add('hidden');
-    updateSendButtonState();
 }
 
 function renderAttachmentPreview(file) {
@@ -2568,17 +2566,90 @@ function renderAttachmentPreview(file) {
     attachmentPreview.appendChild(item);
 }
 
-function updateSendButtonState() {
-    const hasText = messageInput.value.trim().length > 0;
-    const hasAttachment = pendingAttachment !== null;
-    const hasRecipient = currentRecipient !== null;
+// Emoji picker functionality
+const EMOJI_CATEGORIES = {
+    'Smileys': ['😀', '😃', '😄', '😁', '😅', '😂', '🤣', '😊', '😇', '🙂', '😉', '😍', '🥰', '😘', '😋', '😜'],
+    'Gestures': ['👍', '👎', '👌', '✌️', '🤞', '🤟', '🤙', '👋', '🙏', '💪', '👏', '🤝', '❤️', '🔥', '💯', '✨'],
+    'Objects': ['🎉', '🎊', '🎁', '📱', '💻', '📷', '🎵', '🎬', '☕', '🍕', '🍺', '⚽', '🚗', '✈️', '🏠', '💼']
+};
 
-    // Can send if we have (text OR attachment) AND a recipient
-    sendBtn.disabled = !(hasRecipient && (hasText || hasAttachment));
+let emojiPickerVisible = false;
+let emojiPickerEl = null;
+
+function createEmojiPicker() {
+    if (emojiPickerEl) return emojiPickerEl;
+
+    emojiPickerEl = document.createElement('div');
+    emojiPickerEl.className = 'emoji-picker hidden';
+
+    for (const [category, emojis] of Object.entries(EMOJI_CATEGORIES)) {
+        const section = document.createElement('div');
+        section.className = 'emoji-picker-section';
+
+        const title = document.createElement('div');
+        title.className = 'emoji-picker-title';
+        title.textContent = category;
+        section.appendChild(title);
+
+        const grid = document.createElement('div');
+        grid.className = 'emoji-picker-grid';
+
+        for (const emoji of emojis) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'emoji-picker-item';
+            btn.textContent = emoji;
+            btn.onclick = () => insertEmoji(emoji);
+            grid.appendChild(btn);
+        }
+
+        section.appendChild(grid);
+        emojiPickerEl.appendChild(section);
+    }
+
+    sendForm.querySelector('.send-form-row').appendChild(emojiPickerEl);
+    return emojiPickerEl;
 }
 
-// Update send button state on input
-messageInput.addEventListener('input', updateSendButtonState);
+function insertEmoji(emoji) {
+    const start = messageInput.selectionStart;
+    const end = messageInput.selectionEnd;
+    const text = messageInput.value;
+    messageInput.value = text.substring(0, start) + emoji + text.substring(end);
+    messageInput.selectionStart = messageInput.selectionEnd = start + emoji.length;
+    messageInput.focus();
+    hideEmojiPicker();
+}
+
+function showEmojiPicker() {
+    const picker = createEmojiPicker();
+    picker.classList.remove('hidden');
+    emojiPickerVisible = true;
+}
+
+function hideEmojiPicker() {
+    if (emojiPickerEl) {
+        emojiPickerEl.classList.add('hidden');
+    }
+    emojiPickerVisible = false;
+}
+
+function toggleEmojiPicker() {
+    if (emojiPickerVisible) {
+        hideEmojiPicker();
+    } else {
+        showEmojiPicker();
+    }
+}
+
+emojiBtn.addEventListener('click', toggleEmojiPicker);
+
+// Close emoji picker when clicking outside
+document.addEventListener('click', (e) => {
+    if (emojiPickerVisible && !emojiPickerEl.contains(e.target) && e.target !== emojiBtn) {
+        hideEmojiPicker();
+    }
+});
 
 // Drag and drop on input area
 let dragCounter = 0;
@@ -2643,6 +2714,9 @@ sendForm.addEventListener('submit', async (e) => {
     if (!currentRecipient) return;
     if (!text && !pendingAttachment) return;
 
+    // Hide emoji picker when sending
+    hideEmojiPicker();
+
     if (pendingAttachment) {
         await sendWithAttachment(currentRecipient, text || null, pendingAttachment);
     } else {
@@ -2651,8 +2725,6 @@ sendForm.addEventListener('submit', async (e) => {
         messageInput.focus();
         sendMessageAsync(currentRecipient, text, pendingId);
     }
-
-    updateSendButtonState();
 });
 
 async function sendWithAttachment(recipient, message, file) {

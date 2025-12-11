@@ -40,8 +40,15 @@
             <form id="send-form" class="send-form">
                 <div id="attachment-preview" class="attachment-preview hidden"></div>
                 <div class="send-form-row">
-                    <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off" disabled>
-                    <button type="submit" id="send-btn" disabled>Send</button>
+                    <input type="text" id="message-input" placeholder="iMessage" autocomplete="off" disabled>
+                    <button type="button" id="emoji-btn" class="emoji-btn" title="Emoji picker" disabled>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+                            <line x1="9" y1="9" x2="9.01" y2="9" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="15" y1="9" x2="15.01" y2="9" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </button>
                 </div>
             </form>
         </main>
