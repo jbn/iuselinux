@@ -815,7 +815,7 @@ function retryMessage(pendingId) {
     renderMessages(allMessages);
 
     // Start new timer for unconfirmed state
-    const delayMs = (config.pending_message_delay || 5.0) * 1000;
+    const delayMs = (currentConfig.pending_message_delay || 5.0) * 1000;
     pendingTimeouts[pendingId] = setTimeout(() => {
         markPendingUnconfirmed(pendingId);
     }, delayMs);
@@ -853,7 +853,7 @@ function addPendingMessage(text, recipient) {
     pendingMessages.push(pending);
 
     // Start timer to mark as unconfirmed after delay
-    const delayMs = (config.pending_message_delay || 5.0) * 1000;
+    const delayMs = (currentConfig.pending_message_delay || 5.0) * 1000;
     pendingTimeouts[pendingId] = setTimeout(() => {
         markPendingUnconfirmed(pendingId);
     }, delayMs);
@@ -2848,6 +2848,14 @@ messageInput.addEventListener('paste', (e) => {
             }
             return;
         }
+    }
+});
+
+// Handle Enter key to submit (needed since there's no submit button)
+messageInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendForm.dispatchEvent(new Event('submit', { cancelable: true }));
     }
 });
 

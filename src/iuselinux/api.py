@@ -213,6 +213,7 @@ def _delete_custom_sounds() -> None:
             path.unlink()
 
 
+@app.head("/notification-sound")
 @app.get("/notification-sound")
 def serve_notification_sound() -> FileResponse:
     """Serve custom notification sound from user's config directory."""
