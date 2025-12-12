@@ -18,6 +18,16 @@ For development (includes pytest):
 uv pip install -e ".[dev]"
 ```
 
+## Initial Setup
+
+**Important:** Before running iUseLinux for the first time, you must grant **Full Disk Access** permission to your terminal app. This allows iUseLinux to read the iMessage database.
+
+1. Open **System Settings** > **Privacy & Security** > **Full Disk Access**
+2. Click the **+** button and add your terminal app (Terminal, iTerm2, VS Code, etc.)
+3. **Restart your terminal** for the permission to take effect
+
+Without this permission, iUseLinux will show an error page explaining how to fix it.
+
 ## Usage
 
 ### Web Interface

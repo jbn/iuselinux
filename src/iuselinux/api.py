@@ -52,11 +52,49 @@ RATE_LIMIT_MESSAGES = 10  # Max messages per window
 RATE_LIMIT_WINDOW = 60  # Window in seconds
 _send_timestamps: deque[float] = deque()
 
-from .db import FullDiskAccessError, check_db_access
+from .db import FullDiskAccessError, check_db_access, get_db_path
 from .messages import get_chats, get_messages, get_attachment, search_messages, Chat, Message, Attachment
 from .sender import send_imessage, send_imessage_with_file, SendResult
 from .config import get_config, get_config_value, set_config_value, update_config, DEFAULTS as CONFIG_DEFAULTS
 from .contacts import resolve_contact, is_available as contacts_available, ContactInfo
+
+# Track database accessibility at startup (can be updated via /check-access endpoint)
+_db_accessible: bool | None = None
+
+
+def _check_and_report_db_access() -> bool:
+    """Check database access and report status to stderr if unavailable."""
+    global _db_accessible
+    _db_accessible = check_db_access()
+
+    if not _db_accessible:
+        db_path = get_db_path()
+        print(
+            "\n"
+            "=" * 70 + "\n"
+            "ERROR: Full Disk Access permission required\n"
+            "=" * 70 + "\n"
+            f"\n"
+            f"Cannot access iMessage database at:\n"
+            f"  {db_path}\n"
+            f"\n"
+            f"iUseLinux needs Full Disk Access to read your messages.\n"
+            f"\n"
+            f"To fix this:\n"
+            f"  1. Open System Settings (or System Preferences)\n"
+            f"  2. Go to Privacy & Security > Full Disk Access\n"
+            f"  3. Click the + button\n"
+            f"  4. Add your terminal app (Terminal, iTerm2, VS Code, etc.)\n"
+            f"  5. Restart your terminal and run iuselinux again\n"
+            f"\n"
+            f"The web server will start, but you'll see an error page until\n"
+            f"Full Disk Access is granted.\n"
+            "=" * 70 + "\n",
+            file=sys.stderr,
+        )
+
+    return _db_accessible
+
 
 app = FastAPI(
     title="iUseLinux",
@@ -251,8 +289,28 @@ async def full_disk_access_handler(
 
 @app.get("/")
 def index() -> FileResponse:
-    """Serve the main UI."""
+    """Serve the main UI or error page if database is inaccessible."""
+    global _db_accessible
+    # If we haven't checked yet or access was previously denied, recheck
+    if _db_accessible is None or not _db_accessible:
+        _db_accessible = check_db_access()
+
+    if not _db_accessible:
+        return FileResponse(static_dir / "error-no-access.html")
     return FileResponse(static_dir / "index.html")
+
+
+@app.get("/check-access")
+def check_access() -> dict:
+    """
+    Check if database access is available.
+
+    Used by the error page to poll for access after user grants permission.
+    Returns {"accessible": true/false}.
+    """
+    global _db_accessible
+    _db_accessible = check_db_access()
+    return {"accessible": _db_accessible}
 
 
 # Response models
@@ -1389,6 +1447,9 @@ import click
 def main(host: str, port: int, api_token: str | None) -> None:
     """Run the iuselinux server."""
     import uvicorn
+
+    # Check database access at startup and report any issues
+    _check_and_report_db_access()
 
     # Set API token if provided via CLI
     if api_token is not None:
