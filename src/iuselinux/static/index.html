@@ -75,6 +75,15 @@
                             <span>Prevent Sleep</span>
                         </label>
                         <p class="setting-description">Keep your Mac awake while the gateway is running</p>
+                        <div id="sleep-control" class="sleep-control hidden">
+                            <button type="button" id="allow-sleep-btn" class="btn-secondary btn-small hidden">
+                                ↳ Allow to Sleep Now
+                            </button>
+                            <span id="sleep-status-temp" class="sleep-status-temp hidden">(temporary)</span>
+                            <button type="button" id="reengage-sleep-btn" class="btn-secondary btn-small hidden">
+                                ↳ Re-engage Sleep Prevention
+                            </button>
+                        </div>
                     </div>
                     <div class="setting-group">
                         <label class="setting-label">
