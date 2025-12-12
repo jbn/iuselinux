@@ -6,10 +6,11 @@ from unittest.mock import patch, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from iuselinux.api import app, _classify_send_error, SendErrorType
+from iuselinux.api import app, _classify_send_error, SendErrorType, _check_and_report_db_access
 from iuselinux.messages import Chat, Message, Attachment
 from iuselinux.contacts import ContactInfo
 from iuselinux.sender import SendResult
+import iuselinux.api as api_module
 
 
 # Test fixtures
@@ -325,3 +326,94 @@ class TestClassifySendError:
         assert status == 500
         assert error_type == SendErrorType.UNKNOWN
         assert message == original
+
+
+class TestFullDiskAccessHandling:
+    """Tests for Full Disk Access permission handling."""
+
+    def test_check_db_access_returns_false_when_permission_denied(self, client):
+        """Test that check_db_access returns False when permission is denied."""
+        with patch("iuselinux.db.check_db_access", return_value=False):
+            from iuselinux.db import check_db_access
+            # We need to patch the actual function behavior
+            with patch("builtins.open", side_effect=PermissionError("Permission denied")):
+                from iuselinux.db import check_db_access as real_check
+                # The real function catches PermissionError and returns False
+                result = real_check()
+                assert result is False
+
+    def test_check_and_report_db_access_sets_global_state(self):
+        """Test that _check_and_report_db_access updates the global _db_accessible."""
+        # Test when access is denied
+        with patch("iuselinux.api.check_db_access", return_value=False), \
+             patch("iuselinux.api.get_db_path", return_value="/fake/path"):
+            api_module._db_accessible = None  # Reset state
+            result = _check_and_report_db_access()
+            assert result is False
+            assert api_module._db_accessible is False
+
+        # Test when access is granted
+        with patch("iuselinux.api.check_db_access", return_value=True):
+            api_module._db_accessible = None  # Reset state
+            result = _check_and_report_db_access()
+            assert result is True
+            assert api_module._db_accessible is True
+
+    def test_index_serves_error_page_when_db_inaccessible(self, client):
+        """Test that the index route serves the error page when database is inaccessible."""
+        # Set the global state to indicate db is not accessible
+        api_module._db_accessible = False
+        with patch("iuselinux.api.check_db_access", return_value=False):
+            response = client.get("/")
+            assert response.status_code == 200
+            # Check that it's the error page by looking for distinctive content
+            assert b"Full Disk Access" in response.content
+            assert b"Permission Required" in response.content or b"error-no-access" in response.content
+
+    def test_index_serves_main_ui_when_db_accessible(self, client):
+        """Test that the index route serves the main UI when database is accessible."""
+        api_module._db_accessible = True
+        with patch("iuselinux.api.check_db_access", return_value=True):
+            response = client.get("/")
+            assert response.status_code == 200
+            # Check that it's the main UI by looking for distinctive content
+            assert b"iUseLinux" in response.content
+            # The main UI has chat-related elements
+            assert b"chat-list" in response.content or b"Select a chat" in response.content
+
+    def test_check_access_endpoint_returns_accessibility_status(self, client):
+        """Test that /check-access endpoint correctly reports database accessibility."""
+        # Test when inaccessible
+        with patch("iuselinux.api.check_db_access", return_value=False):
+            response = client.get("/check-access")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["accessible"] is False
+
+        # Test when accessible
+        with patch("iuselinux.api.check_db_access", return_value=True):
+            response = client.get("/check-access")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["accessible"] is True
+
+    def test_check_access_endpoint_updates_global_state(self, client):
+        """Test that /check-access endpoint updates the global _db_accessible state."""
+        api_module._db_accessible = False
+
+        with patch("iuselinux.api.check_db_access", return_value=True):
+            response = client.get("/check-access")
+            assert response.status_code == 200
+            assert api_module._db_accessible is True
+
+    def test_index_rechecks_access_when_previously_denied(self, client):
+        """Test that index rechecks access when it was previously denied."""
+        # Start with access denied
+        api_module._db_accessible = False
+
+        # Now access is granted - the index should recheck and serve the main UI
+        with patch("iuselinux.api.check_db_access", return_value=True):
+            response = client.get("/")
+            assert response.status_code == 200
+            # Should now be serving the main UI
+            assert b"chat-list" in response.content or b"Select a chat" in response.content

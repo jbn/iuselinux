@@ -75,3 +75,8 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=9.0.1",
+]
