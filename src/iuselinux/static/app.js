@@ -4,6 +4,7 @@ const messagesDiv = document.getElementById('messages');
 const sendForm = document.getElementById('send-form');
 const messageInput = document.getElementById('message-input');
 const emojiBtn = document.getElementById('emoji-btn');
+const connectionStatus = document.getElementById('connection-status');
 
 // Settings elements
 const settingsBtn = document.getElementById('settings-btn');
@@ -116,6 +117,7 @@ let currentTheme = 'auto';  // 'auto', 'light', or 'dark'
 // Optimistic message state
 let pendingMessages = [];  // Messages being sent (not yet confirmed)
 let pendingMessageId = -1;  // Decreasing negative IDs for pending messages
+let pendingTimeouts = {};  // Track timeout IDs for marking messages as unconfirmed
 
 function applyTheme(theme) {
     currentTheme = theme;
@@ -540,6 +542,9 @@ function selectChat(item) {
     oldestMessageId = null;
     allMessages = [];
     pendingMessages = [];  // Clear pending messages when switching chats
+    // Clear any pending timeouts
+    Object.values(pendingTimeouts).forEach(clearTimeout);
+    pendingTimeouts = {};
     hasMoreOlderMessages = true;
     isLoadingOlder = false;
 
@@ -772,6 +777,12 @@ function confirmPendingMessage(confirmedMsg) {
     );
 
     if (pendingIdx !== -1) {
+        const pending = pendingMessages[pendingIdx];
+        // Clear the unconfirmed timeout if it hasn't fired yet
+        if (pendingTimeouts[pending._pendingId]) {
+            clearTimeout(pendingTimeouts[pending._pendingId]);
+            delete pendingTimeouts[pending._pendingId];
+        }
         // Remove the pending message - real one is now in allMessages
         pendingMessages.splice(pendingIdx, 1);
     }
@@ -781,6 +792,11 @@ function confirmPendingMessage(confirmedMsg) {
 function markPendingFailed(pendingId) {
     const pending = pendingMessages.find(p => p._pendingId === pendingId);
     if (pending) {
+        // Clear the unconfirmed timeout
+        if (pendingTimeouts[pendingId]) {
+            clearTimeout(pendingTimeouts[pendingId]);
+            delete pendingTimeouts[pendingId];
+        }
         pending._pending = false;
         pending._failed = true;
         renderMessages(allMessages);
@@ -795,7 +811,14 @@ function retryMessage(pendingId) {
     // Reset state to pending
     pending._failed = false;
     pending._pending = true;
+    pending._unconfirmed = false;
     renderMessages(allMessages);
+
+    // Start new timer for unconfirmed state
+    const delayMs = (config.pending_message_delay || 5.0) * 1000;
+    pendingTimeouts[pendingId] = setTimeout(() => {
+        markPendingUnconfirmed(pendingId);
+    }, delayMs);
 
     // Retry the send
     sendMessageAsync(pending._recipient, pending.text, pendingId);
@@ -818,6 +841,7 @@ function addPendingMessage(text, recipient) {
         _sortOrder: Date.now(),   // Sort by time for display
         _pendingId: pendingId,
         _pending: true,
+        _unconfirmed: false,  // Becomes true after delay if not confirmed
         _failed: false,
         _recipient: recipient,
         text: text,
@@ -827,9 +851,30 @@ function addPendingMessage(text, recipient) {
         attachments: []
     };
     pendingMessages.push(pending);
+
+    // Start timer to mark as unconfirmed after delay
+    const delayMs = (config.pending_message_delay || 5.0) * 1000;
+    pendingTimeouts[pendingId] = setTimeout(() => {
+        markPendingUnconfirmed(pendingId);
+    }, delayMs);
+
     renderMessages(allMessages);
     scrollToBottom();
     return pendingId;
+}
+
+// Mark a pending message as unconfirmed (visual feedback after delay)
+function markPendingUnconfirmed(pendingId) {
+    const pending = pendingMessages.find(p => p._pendingId === pendingId);
+    if (pending && pending._pending && !pending._failed) {
+        pending._unconfirmed = true;
+        // Update the DOM directly for the specific message
+        const wrapper = document.querySelector(`[data-pending-id="${pendingId}"]`);
+        if (wrapper) {
+            wrapper.classList.add('unconfirmed');
+        }
+    }
+    delete pendingTimeouts[pendingId];
 }
 
 // Async send that updates pending message status
@@ -1039,17 +1084,17 @@ function renderTapbacks(tapbacks) {
 function messageHtml(msg, tapbacks = [], showSender = false) {
     const cls = msg.is_from_me ? 'from-me' : 'from-them';
 
-    // Add pending/failed class for optimistic messages
-    const pendingCls = msg._pending ? ' pending' : '';
+    // Add unconfirmed/failed class for optimistic messages
+    const unconfirmedCls = msg._unconfirmed ? ' unconfirmed' : '';
     const failedCls = msg._failed ? ' failed' : '';
-    const statusCls = pendingCls + failedCls;
+    const statusCls = unconfirmedCls + failedCls;
 
     const text = msg.text || '';
     const attachmentsHtml = renderAttachments(msg.attachments);
     const senderHtml = showSender ? getMessageSenderHtml(msg) : '';
     const tapbacksHtml = renderTapbacks(tapbacks);
 
-    // Status indicator only for failed messages (pending just uses opacity)
+    // Status indicator only for failed messages (unconfirmed uses opacity)
     let statusHtml = '';
     if (msg._failed) {
         statusHtml = `<div class="message-status failed">
@@ -1144,6 +1189,18 @@ function stopKeepalive() {
     }
 }
 
+// Update connection status indicator
+function updateConnectionStatus(state) {
+    connectionStatus.classList.remove('connected', 'disconnected', 'connecting');
+    connectionStatus.classList.add(state);
+    const titles = {
+        connected: 'Connected',
+        disconnected: 'Disconnected',
+        connecting: 'Connecting...'
+    };
+    connectionStatus.title = titles[state] || 'Unknown';
+}
+
 // Single WebSocket connection for ALL messages
 // Routes messages client-side: current chat -> message view, other chats -> sidebar update
 function connectWebSocket() {
@@ -1164,10 +1221,12 @@ function connectWebSocket() {
         wsUrl += `?token=${encodeURIComponent(currentConfig.api_token)}`;
     }
 
+    updateConnectionStatus('connecting');
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
         console.log('WebSocket connected');
+        updateConnectionStatus('connected');
         // Tell server to start from our current position
         if (lastMessageId > 0) {
             ws.send(JSON.stringify({
@@ -1224,6 +1283,7 @@ function connectWebSocket() {
 
     ws.onclose = () => {
         console.log('WebSocket closed, reconnecting in 3s...');
+        updateConnectionStatus('disconnected');
         stopKeepalive();
         // Only reconnect if this is still our active websocket
         if (websocket === ws) {

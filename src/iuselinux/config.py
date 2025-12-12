@@ -27,10 +27,7 @@ DEFAULTS: dict[str, Any] = {
     "thumbnail_cache_ttl": 86400,  # Video thumbnail cache TTL in seconds (default 24 hours)
     "thumbnail_timestamp": 3.0,  # Seconds into video for thumbnail extraction
     "websocket_poll_interval": 1.0,  # Seconds between WebSocket database polls
-    # TUI client settings
-    "tui_server_host": "localhost",  # Server hostname for TUI client
-    "tui_server_port": 8000,  # Server port for TUI client
-    "tui_theme": "auto",  # TUI theme: "auto", "light", or "dark"
+    "pending_message_delay": 5.0,  # Seconds before unconfirmed messages show reduced opacity
 }
 
 

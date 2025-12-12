@@ -1,15 +1,11 @@
 # iuselinux
 
-A web and terminal interface for reading and sending iMessages on macOS.
+A web interface for reading and sending iMessages on macOS.
 
 ## Installation
 
 ```bash
-# Server only (web UI)
 uv pip install iuselinux
-
-# With TUI client
-uv pip install iuselinux[tui]
 ```
 
 For development (includes pytest):
@@ -39,29 +35,6 @@ iuselinux
 ```
 
 Then open http://127.0.0.1:8000 in your browser.
-
-### Terminal UI (TUI)
-
-The TUI client connects to the server remotely - perfect for accessing iMessage from another machine via SSH tunnel or VPN.
-
-```bash
-# On the remote machine (requires iuselinux[tui])
-iuselinux-tui --host localhost --port 8000
-```
-
-Options:
-- `--host`, `-h`: Server hostname (default: localhost)
-- `--port`, `-p`: Server port (default: 8000)
-- `--token`, `-t`: API token (or set `IUSELINUX_TOKEN` env var)
-
-Key bindings:
-- `j`/`k`: Navigate up/down
-- `g`/`G`: Jump to first/last
-- `Enter`: Select chat / Send message
-- `Escape`: Focus chat list
-- `/`: Search (coming soon)
-- `n`: New message (coming soon)
-- `q`: Quit
 
 ## Features
 
@@ -177,8 +150,7 @@ iuselinux --host 100.64.0.1 --port 8000
 ```
 
 Then access from any device on your tailnet:
-- Web UI: `http://100.64.0.1:8000` or `http://your-mac.tailnet-name.ts.net:8000`
-- TUI: `iuselinux-tui --host 100.64.0.1 --port 8000`
+- `http://100.64.0.1:8000` or `http://your-mac.tailnet-name.ts.net:8000`
 
 **Security note**: Binding to the Tailscale IP (100.x.x.x) ensures only devices on your tailnet can connect. This is much safer than `--host 0.0.0.0` which exposes the server on all interfaces (local network, etc.).
 
@@ -206,8 +178,7 @@ This gives you:
 - No need to remember port numbers
 
 Access from any device on your tailnet:
-- Web UI: `https://your-mac.tailnet-name.ts.net`
-- TUI: `iuselinux-tui --host your-mac.tailnet-name.ts.net --port 443`
+- `https://your-mac.tailnet-name.ts.net`
 
 To stop serving:
 ```bash

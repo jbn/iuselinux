@@ -378,12 +378,49 @@ body.resizing-sidebar {
 .header {
     padding: 16px;
     border-bottom: 1px solid var(--border-primary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .header h1 {
     font-size: 18px;
     font-weight: 600;
     color: var(--text-primary);
+}
+
+.connection-status {
+    display: flex;
+    align-items: center;
+    cursor: default;
+}
+
+.connection-status .status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    transition: background-color 0.3s ease;
+}
+
+.connection-status.connected .status-dot {
+    background-color: var(--status-ok);
+    box-shadow: 0 0 6px var(--status-ok);
+}
+
+.connection-status.disconnected .status-dot {
+    background-color: var(--status-error);
+    box-shadow: 0 0 6px var(--status-error);
+}
+
+.connection-status.connecting .status-dot {
+    background-color: var(--status-warning);
+    box-shadow: 0 0 6px var(--status-warning);
+    animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
 }
 
 .messages {
@@ -1419,8 +1456,10 @@ body.resizing-sidebar {
 }
 
 /* Optimistic message states */
-.message-wrapper.pending .message {
-    opacity: 0.7;
+/* Messages that haven't been confirmed after the delay period */
+.message-wrapper.unconfirmed .message,
+.message-wrapper.unconfirmed .message-attachments-only {
+    opacity: 0.6;
 }
 
 .message-wrapper.failed .message {
