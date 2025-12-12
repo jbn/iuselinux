@@ -159,6 +159,11 @@ tui = [
     { name = "websockets" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.0.0" },
@@ -176,6 +181,9 @@ requires-dist = [
     { name = "websockets", specifier = ">=15.0.1" },
     { name = "websockets", marker = "extra == 'tui'", specifier = ">=15.0.1" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.0.1" }]
 
 [[package]]
 name = "librt"
