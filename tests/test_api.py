@@ -274,6 +274,42 @@ class TestConfigEndpoint:
         assert data["log_level"] == "WARNING"
 
 
+class TestSleepEndpoints:
+    """Tests for /sleep endpoints."""
+
+    def test_get_sleep_status(self, client):
+        with patch("iuselinux.api.is_caffeinate_running", return_value=True), \
+             patch("iuselinux.api.get_config", return_value={"prevent_sleep": True}):
+            response = client.get("/sleep/status")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["caffeinate_running"] is True
+            assert data["prevent_sleep_enabled"] is True
+
+    def test_allow_sleep_now(self, client):
+        with patch("iuselinux.api.stop_caffeinate", return_value=True) as mock_stop, \
+             patch("iuselinux.api.is_caffeinate_running", return_value=False), \
+             patch("iuselinux.api.get_config", return_value={"prevent_sleep": True}):
+            response = client.post("/sleep/allow")
+            assert response.status_code == 200
+            mock_stop.assert_called_once()
+            data = response.json()
+            assert data["caffeinate_running"] is False
+            # Config should still say prevent_sleep is enabled
+            assert data["prevent_sleep_enabled"] is True
+
+    def test_prevent_sleep_now(self, client):
+        with patch("iuselinux.api.start_caffeinate", return_value=True) as mock_start, \
+             patch("iuselinux.api.is_caffeinate_running", return_value=True), \
+             patch("iuselinux.api.get_config", return_value={"prevent_sleep": True}):
+            response = client.post("/sleep/prevent")
+            assert response.status_code == 200
+            mock_start.assert_called_once()
+            data = response.json()
+            assert data["caffeinate_running"] is True
+            assert data["prevent_sleep_enabled"] is True
+
+
 class TestClassifySendError:
     """Tests for error classification."""
 

@@ -61,6 +61,68 @@ from .contacts import resolve_contact, is_available as contacts_available, Conta
 # Track database accessibility at startup (can be updated via /check-access endpoint)
 _db_accessible: bool | None = None
 
+# Global caffeinate process handle for sleep prevention
+_caffeinate_proc: subprocess.Popen[bytes] | None = None
+
+
+def start_caffeinate() -> bool:
+    """Start caffeinate process to prevent system sleep.
+
+    Returns True if caffeinate was started successfully, False otherwise.
+    """
+    global _caffeinate_proc
+
+    if _caffeinate_proc is not None and _caffeinate_proc.poll() is None:
+        # Already running
+        return True
+
+    try:
+        # Start caffeinate to prevent sleep
+        # -d: prevent display sleep
+        # -i: prevent system idle sleep
+        _caffeinate_proc = subprocess.Popen(
+            ["caffeinate", "-di"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        logger.info("Caffeinate started - preventing system sleep")
+        return True
+    except FileNotFoundError:
+        logger.warning("caffeinate not found (not on macOS?)")
+        return False
+    except Exception as e:
+        logger.warning("Failed to start caffeinate: %s", e)
+        return False
+
+
+def stop_caffeinate() -> bool:
+    """Stop caffeinate process to allow system sleep.
+
+    Returns True if caffeinate was stopped, False if it wasn't running.
+    """
+    global _caffeinate_proc
+
+    if _caffeinate_proc is None:
+        return False
+
+    if _caffeinate_proc.poll() is None:
+        # Still running, terminate it
+        _caffeinate_proc.terminate()
+        try:
+            _caffeinate_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _caffeinate_proc.kill()
+        logger.info("Caffeinate stopped - allowing system sleep")
+
+    _caffeinate_proc = None
+    return True
+
+
+def is_caffeinate_running() -> bool:
+    """Check if caffeinate process is currently running."""
+    global _caffeinate_proc
+    return _caffeinate_proc is not None and _caffeinate_proc.poll() is None
+
 
 def _check_and_report_db_access() -> bool:
     """Check database access and report status to stderr if unavailable."""
@@ -1319,6 +1381,12 @@ def update_configuration(request: ConfigUpdateRequest) -> ConfigResponse:
             from . import setup_logging
             setup_logging()
             logger.info("Log level changed to %s", updates["log_level"])
+        # Start/stop caffeinate based on prevent_sleep setting
+        if "prevent_sleep" in updates:
+            if updates["prevent_sleep"]:
+                start_caffeinate()
+            else:
+                stop_caffeinate()
     else:
         config = get_config()
     return ConfigResponse(**config)
@@ -1328,6 +1396,56 @@ def update_configuration(request: ConfigUpdateRequest) -> ConfigResponse:
 def get_config_defaults() -> ConfigResponse:
     """Get default configuration values."""
     return ConfigResponse(**CONFIG_DEFAULTS)
+
+
+# Sleep control endpoints
+
+
+class SleepStatusResponse(BaseModel):
+    """Response for sleep status endpoint."""
+
+    caffeinate_running: bool
+    prevent_sleep_enabled: bool
+
+
+@app.get("/sleep/status", response_model=SleepStatusResponse)
+def get_sleep_status() -> SleepStatusResponse:
+    """Get current sleep prevention status."""
+    config = get_config()
+    return SleepStatusResponse(
+        caffeinate_running=is_caffeinate_running(),
+        prevent_sleep_enabled=config.get("prevent_sleep", False),
+    )
+
+
+@app.post("/sleep/allow", response_model=SleepStatusResponse)
+def allow_sleep_now() -> SleepStatusResponse:
+    """Temporarily allow system to sleep by stopping caffeinate.
+
+    This does NOT change the prevent_sleep config setting.
+    Caffeinate will restart on next server restart if prevent_sleep is enabled.
+    """
+    stop_caffeinate()
+    config = get_config()
+    return SleepStatusResponse(
+        caffeinate_running=is_caffeinate_running(),
+        prevent_sleep_enabled=config.get("prevent_sleep", False),
+    )
+
+
+@app.post("/sleep/prevent", response_model=SleepStatusResponse)
+def prevent_sleep_now() -> SleepStatusResponse:
+    """Re-engage sleep prevention by starting caffeinate.
+
+    This does NOT change the prevent_sleep config setting.
+    Use this to manually restart caffeinate after temporarily allowing sleep.
+    """
+    start_caffeinate()
+    config = get_config()
+    return SleepStatusResponse(
+        caffeinate_running=is_caffeinate_running(),
+        prevent_sleep_enabled=config.get("prevent_sleep", False),
+    )
 
 
 # WebSocket for real-time updates
@@ -1456,34 +1574,15 @@ def main(host: str, port: int, api_token: str | None) -> None:
         set_config_value("api_token", api_token)
         print(f"API token set (length: {len(api_token)} chars)")
 
-    # Check if caffeinate is enabled in config
+    # Start caffeinate if enabled in config
     config = get_config()
-    caffeinate_proc: subprocess.Popen[bytes] | None = None
-
     if config.get("prevent_sleep", False):
-        try:
-            # Start caffeinate to prevent sleep
-            # -d: prevent display sleep
-            # -i: prevent system idle sleep
-            caffeinate_proc = subprocess.Popen(
-                ["caffeinate", "-di"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+        if start_caffeinate():
             print("Caffeinate started - preventing system sleep")
-        except FileNotFoundError:
-            print("Warning: caffeinate not found (not on macOS?)")
-        except Exception as e:
-            print(f"Warning: Failed to start caffeinate: {e}")
 
     def cleanup(signum: int | None = None, frame: FrameType | None = None) -> None:
         """Clean up caffeinate process on exit."""
-        if caffeinate_proc:
-            caffeinate_proc.terminate()
-            try:
-                caffeinate_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                caffeinate_proc.kill()
+        stop_caffeinate()
         sys.exit(0)
 
     # Register signal handlers for clean shutdown
@@ -1493,8 +1592,7 @@ def main(host: str, port: int, api_token: str | None) -> None:
     try:
         uvicorn.run(app, host=host, port=port)
     finally:
-        if caffeinate_proc:
-            caffeinate_proc.terminate()
+        stop_caffeinate()
 
 
 if __name__ == "__main__":

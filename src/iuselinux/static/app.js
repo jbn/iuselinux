@@ -1353,6 +1353,9 @@ async function openSettings() {
 
     // Fetch health status for about section
     await updateHealthStatus();
+
+    // Update sleep status UI
+    await updateSleepStatusUI();
 }
 
 function switchSettingsTab(tabName) {
@@ -1479,6 +1482,88 @@ document.addEventListener('keydown', (e) => {
         closeSettings();
     }
 });
+
+// Sleep control functionality
+async function updateSleepStatusUI() {
+    const sleepControl = document.getElementById('sleep-control');
+    const allowSleepBtn = document.getElementById('allow-sleep-btn');
+    const reengageSleepBtn = document.getElementById('reengage-sleep-btn');
+    const sleepStatusTemp = document.getElementById('sleep-status-temp');
+
+    if (!sleepControl) return;
+
+    try {
+        const res = await apiFetch('/sleep/status');
+        if (!res.ok) {
+            console.error('Sleep status API returned', res.status);
+            sleepControl.classList.add('hidden');
+            return;
+        }
+
+        const status = await res.json();
+
+        if (!status.prevent_sleep_enabled) {
+            // Sleep prevention is disabled in config - hide the whole control
+            sleepControl.classList.add('hidden');
+        } else if (status.caffeinate_running) {
+            // Caffeinate is running - show "Allow Sleep Now" button with "(temporary)" label
+            sleepControl.classList.remove('hidden');
+            allowSleepBtn.classList.remove('hidden');
+            sleepStatusTemp.classList.remove('hidden');
+            reengageSleepBtn.classList.add('hidden');
+        } else {
+            // Config says prevent sleep but caffeinate isn't running (user allowed sleep temporarily)
+            // Show "Re-engage" button to restore normal state
+            sleepControl.classList.remove('hidden');
+            allowSleepBtn.classList.add('hidden');
+            sleepStatusTemp.classList.add('hidden');
+            reengageSleepBtn.classList.remove('hidden');
+        }
+    } catch (err) {
+        console.error('Failed to get sleep status:', err);
+        // Hide control on error
+        sleepControl.classList.add('hidden');
+    }
+}
+
+async function allowSleepNow() {
+    try {
+        const res = await apiFetch('/sleep/allow', { method: 'POST' });
+        if (res.ok) {
+            await updateSleepStatusUI();
+        } else {
+            alert('Failed to allow sleep');
+        }
+    } catch (err) {
+        console.error('Failed to allow sleep:', err);
+        alert('Failed to allow sleep');
+    }
+}
+
+async function reengageSleepPrevention() {
+    try {
+        const res = await apiFetch('/sleep/prevent', { method: 'POST' });
+        if (res.ok) {
+            await updateSleepStatusUI();
+        } else {
+            alert('Failed to re-engage sleep prevention');
+        }
+    } catch (err) {
+        console.error('Failed to re-engage sleep prevention:', err);
+        alert('Failed to re-engage sleep prevention');
+    }
+}
+
+// Sleep control button listeners
+const allowSleepBtn = document.getElementById('allow-sleep-btn');
+if (allowSleepBtn) {
+    allowSleepBtn.addEventListener('click', allowSleepNow);
+}
+
+const reengageSleepBtn = document.getElementById('reengage-sleep-btn');
+if (reengageSleepBtn) {
+    reengageSleepBtn.addEventListener('click', reengageSleepPrevention);
+}
 
 // Custom notification sound upload functionality
 async function updateCustomSoundStatus() {

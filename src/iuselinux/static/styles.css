@@ -4,6 +4,10 @@
     padding: 0;
 }
 
+.hidden {
+    display: none !important;
+}
+
 /* Light theme (default) */
 :root,
 [data-theme="light"] {
@@ -1797,6 +1801,20 @@ body.resizing-sidebar {
 .btn-danger:hover {
     background: var(--status-error);
     color: white;
+}
+
+/* Sleep control */
+.sleep-control {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sleep-status-temp {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-style: italic;
 }
 
 /* Attachment upload UI - iMessage style */
