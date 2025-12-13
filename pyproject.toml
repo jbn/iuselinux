@@ -33,6 +33,7 @@ dependencies = [
     "click>=8.0.0",
     "python-multipart>=0.0.20",
     "packaging>=21.0",
+    "rumps>=0.4.0",
 ]
 
 [project.optional-dependencies]
