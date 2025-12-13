@@ -2,16 +2,35 @@
 
 A web interface for reading and sending iMessages on macOS.
 
-## Installation
+## Quick Start
+
+Run directly with uvx (no installation required):
 
 ```bash
-uv pip install iuselinux
+uvx iuselinux
 ```
 
-For development (includes pytest):
+Then open http://127.0.0.1:1960 in your browser.
+
+Options:
+```bash
+uvx iuselinux --host 0.0.0.0 --port 8000
+uvx iuselinux --api-token SECRET
+```
+
+## Installation
+
+For persistent installation (adds `iuselinux` to your PATH):
 
 ```bash
-uv pip install -e ".[dev]"
+uv tool install iuselinux
+```
+
+For development:
+
+```bash
+uv pip install -e .
+uv sync --group dev
 ```
 
 ## Initial Setup
@@ -24,28 +43,76 @@ uv pip install -e ".[dev]"
 
 Without this permission, iUseLinux will show an error page explaining how to fix it.
 
-## Usage
+## Run as Service (Recommended)
 
-### Web Interface
-
-Start the server on your Mac:
+Install as a macOS LaunchAgent that starts on login and auto-restarts:
 
 ```bash
-iuselinux
+# Basic install (localhost only)
+uvx iuselinux service install
+
+# With custom port
+uvx iuselinux service install --port 8000
+
+# With Tailscale remote access
+uvx iuselinux service install --tailscale
+
+# Skip the menu bar tray icon
+uvx iuselinux service install --no-tray
 ```
 
-Then open http://127.0.0.1:1960 in your browser.
+Manage the service:
+
+```bash
+# Check status
+uvx iuselinux service status
+
+# Uninstall
+uvx iuselinux service uninstall
+```
+
+### Menu Bar Tray
+
+By default, a menu bar icon is installed with the service. Manage it separately:
+
+```bash
+uvx iuselinux tray status
+uvx iuselinux tray start
+uvx iuselinux tray stop
+```
 
 ## Features
 
 - View all conversations and messages
-- Send messages via the web UI
+- Send messages and attachments via the web UI
 - Real-time updates via WebSocket
-- Attachment support (images, videos with auto-conversion)
-- Vim keybindings (optional)
+- Search messages
+- Attachment support (images, videos with HEIC→WebP and MOV→MP4 conversion)
+- Contact name and photo resolution
+- Menu bar tray icon for quick access
+- Light/dark/auto theme
+- Browser notifications with custom sounds
 - Custom CSS theming
 - API token authentication (optional)
 - Prevents Mac from sleeping while running (configurable)
+- Auto-updates
+
+## Local Network Access
+
+Bind to all interfaces for LAN access:
+
+```bash
+uvx iuselinux --host 0.0.0.0
+```
+
+Access from any device on your network at `http://your-mac-ip:1960`
+
+Find your Mac's IP:
+```bash
+ipconfig getifaddr en0
+```
+
+**Warning**: This exposes iuselinux to everyone on your local network. Use `--api-token SECRET` for basic protection.
 
 ## Remote Access via SSH Tunnel
 
@@ -303,12 +370,65 @@ If your Mac is behind a router, forward UDP port 51820 to your Mac's local IP.
 
 ## API Endpoints
 
-- `GET /chats` - List conversations
-- `GET /messages?chat_id=N` - Get messages from a chat
-- `GET /poll?after_rowid=N` - Poll for new messages (use for live updates)
-- `POST /send` - Send a message
-- `GET /attachments/{id}` - Get attachment file (images, videos, etc.)
-- `GET /health` - Health check
+### Messages & Chats
+- `GET /chats` - List conversations (supports `limit`)
+- `GET /messages` - Get messages (`chat_id`, `limit`, `after_rowid`, `before_rowid`)
+- `GET /search` - Search messages (`q`, `chat_id`, `limit`, `offset`)
+- `GET /poll` - Poll for new messages (`after_rowid`, `chat_id`, `limit`)
+- `POST /send` - Send a text message
+- `POST /send-with-attachment` - Send a file attachment
+- `WebSocket /ws` - Real-time updates (`chat_id`, `token` for auth)
+
+### Attachments
+- `GET /attachments/{id}` - Get attachment file (auto-converts HEIC to WebP)
+- `GET /attachments/{id}/thumbnail` - Get video thumbnail (requires ffmpeg)
+- `GET /attachments/{id}/stream` - Stream/transcode video to MP4
+
+### Contacts
+- `GET /contacts/{handle}` - Look up contact info
+- `GET /contacts/{handle}/image` - Get contact photo
+
+### Configuration
+- `GET /config` - Get all settings
+- `PUT /config` - Update settings
+- `GET /config/defaults` - Get default values
+
+### Service Management
+- `GET /service/status` - Service and Tailscale status
+- `POST /service/install` - Install LaunchAgent
+- `POST /service/uninstall` - Uninstall service
+- `POST /service/tailscale/enable` - Enable Tailscale serve
+- `POST /service/tailscale/disable` - Disable Tailscale serve
+
+### System
+- `GET /health` - Health check with ffmpeg/contacts status
+- `GET /version` - Current and latest version info
+- `POST /version/check` - Force check for updates
+- `POST /version/update` - Trigger update
+- `GET /sleep/status` - Check sleep prevention status
+- `POST /sleep/allow` - Temporarily allow sleep
+- `POST /sleep/prevent` - Re-engage sleep prevention
+
+## Configuration
+
+Settings are accessible via the web UI (Settings → General) or the `/config` API. Available options:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `theme` | `auto` | UI theme: `auto`, `light`, or `dark` |
+| `prevent_sleep` | `true` | Keep Mac awake while running |
+| `api_token` | `""` | API token for authentication (empty = no auth) |
+| `notifications_enabled` | `true` | Browser notifications for new messages |
+| `notification_sound_enabled` | `true` | Play sound with notifications |
+| `use_custom_notification_sound` | `false` | Use uploaded custom sound |
+| `auto_update_enabled` | `true` | Auto-install updates |
+| `update_check_interval` | `86400` | Seconds between update checks |
+| `custom_css` | `""` | Custom CSS for UI styling |
+| `websocket_poll_interval` | `1.0` | Seconds between message polls |
+| `thumbnail_cache_ttl` | `86400` | Video thumbnail cache duration |
+| `thumbnail_timestamp` | `3.0` | Seconds into video for thumbnail |
+| `contact_cache_ttl` | `86400` | Contact info cache duration |
+| `log_level` | `WARNING` | Logging verbosity |
 
 ## macOS Permissions
 
@@ -336,3 +456,15 @@ To send messages, the app uses AppleScript to control Messages.app:
 2. Click **OK** to allow Terminal to control Messages.app
 3. If denied, go to **System Settings** → **Privacy & Security** → **Automation**
 4. Enable **Terminal** → **Messages**
+
+## Optional Dependencies
+
+### FFmpeg (for video features)
+
+Video thumbnails and MOV→MP4 transcoding require ffmpeg:
+
+```bash
+brew install ffmpeg
+```
+
+Without ffmpeg, videos will still display but thumbnails and streaming won't be available. The `/health` endpoint shows whether ffmpeg is detected.
