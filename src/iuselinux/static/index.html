@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iUseLinux</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+    <link rel="stylesheet" href="/static/styles.css">
+    <style id="custom-css"></style>
+</head>
+<body>
+    <div class="container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <button id="settings-btn" class="icon-btn" title="Settings">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10 13a3 3 0 100-6 3 3 0 000 6z"/>
+                        <path fill-rule="evenodd" d="M9.024 2.783a1.5 1.5 0 011.952 0l.817.693a1.5 1.5 0 001.227.317l1.045-.2a1.5 1.5 0 011.38.976l.378 1.004a1.5 1.5 0 00.757.87l.94.498a1.5 1.5 0 01.572 1.857l-.446.97a1.5 1.5 0 000 1.264l.446.97a1.5 1.5 0 01-.572 1.857l-.94.498a1.5 1.5 0 00-.757.87l-.378 1.004a1.5 1.5 0 01-1.38.976l-1.045-.2a1.5 1.5 0 00-1.227.317l-.817.693a1.5 1.5 0 01-1.952 0l-.817-.693a1.5 1.5 0 00-1.227-.317l-1.045.2a1.5 1.5 0 01-1.38-.976l-.378-1.004a1.5 1.5 0 00-.757-.87l-.94-.498a1.5 1.5 0 01-.572-1.857l.446-.97a1.5 1.5 0 000-1.264l-.446-.97a1.5 1.5 0 01.572-1.857l.94-.498a1.5 1.5 0 00.757-.87l.378-1.004a1.5 1.5 0 011.38-.976l1.045.2a1.5 1.5 0 001.227-.317l.817-.693zM10 15a5 5 0 100-10 5 5 0 000 10z" clip-rule="evenodd"/>
+                    </svg>
+                </button>
+                <h2>Chats</h2>
+                <button id="new-message-btn" class="icon-btn" title="New Message">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <rect x="2" y="2" width="16" height="16" rx="3"/>
+                        <path d="M13 4l3 3-8 8H5v-3l8-8z"/>
+                    </svg>
+                </button>
+            </div>
+            <div id="chat-list" class="chat-list"></div>
+            <div id="sidebar-resize" class="sidebar-resize"></div>
+        </aside>
+        <main class="main">
+            <header class="header">
+                <h1 id="chat-title">Select a chat</h1>
+                <div id="connection-status" class="connection-status disconnected" title="Disconnected">
+                    <span class="status-dot"></span>
+                </div>
+            </header>
+            <div id="messages" class="messages"></div>
+            <form id="send-form" class="send-form">
+                <div id="attachment-preview" class="attachment-preview hidden"></div>
+                <div class="send-form-row">
+                    <input type="text" id="message-input" placeholder="iMessage" autocomplete="off" disabled>
+                    <button type="button" id="emoji-btn" class="emoji-btn" title="Emoji picker" disabled>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+                            <line x1="9" y1="9" x2="9.01" y2="9" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="15" y1="9" x2="15.01" y2="9" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                </div>
+            </form>
+        </main>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button id="settings-close" class="modal-close">&times;</button>
+            </div>
+            <div class="settings-tabs">
+                <button class="settings-tab active" data-tab="general">General</button>
+                <button class="settings-tab" data-tab="service">Service</button>
+                <button class="settings-tab" data-tab="advanced">Advanced</button>
+                <button class="settings-tab" data-tab="install">Install</button>
+            </div>
+            <div class="modal-body">
+                <!-- General Tab -->
+                <div class="settings-tab-content active" id="tab-general">
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <input type="checkbox" id="setting-prevent-sleep">
+                            <span>Prevent Sleep</span>
+                        </label>
+                        <p class="setting-description">Keep your Mac awake while the gateway is running</p>
+                        <div id="sleep-control" class="sleep-control hidden">
+                            <button type="button" id="allow-sleep-btn" class="btn-secondary btn-small hidden">
+                                ↳ Allow to Sleep Now
+                            </button>
+                            <span id="sleep-status-temp" class="sleep-status-temp hidden">(temporary)</span>
+                            <button type="button" id="reengage-sleep-btn" class="btn-secondary btn-small hidden">
+                                ↳ Re-engage Sleep Prevention
+                            </button>
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <input type="checkbox" id="setting-notifications" checked>
+                            <span>Browser Notifications</span>
+                        </label>
+                        <p class="setting-description">Show desktop notifications for new messages when the tab is not active</p>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <input type="checkbox" id="setting-notification-sound" checked>
+                            <span>Notification Sound</span>
+                        </label>
+                        <p class="setting-description">Play a sound when new messages arrive</p>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <input type="checkbox" id="setting-use-custom-sound">
+                            <span>Use Custom Sound</span>
+                        </label>
+                        <p class="setting-description">Use uploaded sound instead of default</p>
+                    </div>
+                    <div class="setting-group custom-sound-upload">
+                        <label class="setting-label-block">Custom Sound</label>
+                        <p class="setting-description">Upload a custom notification sound (mp3, wav, ogg, m4a, aac - max 5MB)</p>
+                        <div class="custom-sound-controls">
+                            <span id="custom-sound-status" class="custom-sound-status">No custom sound</span>
+                            <input type="file" id="setting-custom-sound-file" accept=".mp3,.wav,.ogg,.m4a,.aac" class="hidden">
+                            <button type="button" id="custom-sound-upload-btn" class="btn-secondary btn-small">Upload</button>
+                            <button type="button" id="custom-sound-delete-btn" class="btn-secondary btn-small btn-danger hidden">Delete</button>
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label-block">Theme</label>
+                        <p class="setting-description">Choose your preferred color scheme</p>
+                        <select id="setting-theme">
+                            <option value="auto">Auto (System)</option>
+                            <option value="light">Light</option>
+                            <option value="dark">Dark</option>
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label-block">Custom CSS</label>
+                        <p class="setting-description">Add custom styles to customize the appearance</p>
+                        <textarea id="setting-custom-css" rows="6" placeholder="/* Add your custom CSS here */"></textarea>
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label-block">API Token</label>
+                        <p class="setting-description">Set a token to require authentication for API access. Leave empty to disable.</p>
+                        <input type="password" id="setting-api-token" placeholder="Enter token to enable auth">
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label">
+                            <input type="checkbox" id="setting-auto-update" checked>
+                            <span>Auto-Update</span>
+                        </label>
+                        <p class="setting-description">Automatically install updates when available</p>
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="about-section">
+                        <h3>About</h3>
+                        <p class="about-name">iUseLinux <span id="app-version">loading...</span></p>
+                        <p class="about-description">A web interface for reading and sending iMessages on macOS.</p>
+                        <div class="about-status">
+                            <span class="status-label">Update Status:</span>
+                            <span id="update-status" class="status-value">checking...</span>
+                        </div>
+                        <div class="update-controls">
+                            <button type="button" id="check-updates-btn" class="btn-secondary btn-small">Check for Updates</button>
+                            <button type="button" id="install-update-btn" class="btn-primary btn-small hidden">Install Update</button>
+                        </div>
+                        <p id="update-message" class="update-message hidden"></p>
+                        <div class="about-status">
+                            <span class="status-label">Database:</span>
+                            <span id="status-db" class="status-value">checking...</span>
+                        </div>
+                        <div class="about-status">
+                            <span class="status-label">FFmpeg:</span>
+                            <span id="status-ffmpeg" class="status-value">checking...</span>
+                        </div>
+                        <div class="about-status">
+                            <span class="status-label">Contacts:</span>
+                            <span id="status-contacts" class="status-value">checking...</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Service Tab -->
+                <div class="settings-tab-content" id="tab-service">
+                    <div class="setting-group">
+                        <h3>LaunchAgent Service</h3>
+                        <p class="setting-description">Install iuselinux as a macOS service that starts automatically on login and restarts on failure.</p>
+                        <div class="service-status" id="service-status">
+                            <span class="status-indicator" id="service-status-indicator"></span>
+                            <span id="service-status-text">Checking...</span>
+                        </div>
+                        <div class="service-controls">
+                            <button type="button" id="service-install-btn" class="btn-primary btn-small">Install Service</button>
+                            <button type="button" id="service-uninstall-btn" class="btn-secondary btn-small btn-danger hidden">Uninstall Service</button>
+                        </div>
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="setting-group">
+                        <h3>Tailscale Remote Access</h3>
+                        <p class="setting-description">Enable Tailscale serve to access iuselinux from anywhere on your tailnet with automatic HTTPS.</p>
+                        <div class="tailscale-status" id="tailscale-status">
+                            <span class="status-indicator" id="tailscale-status-indicator"></span>
+                            <span id="tailscale-status-text">Checking...</span>
+                        </div>
+                        <div class="tailscale-controls">
+                            <button type="button" id="tailscale-enable-btn" class="btn-primary btn-small hidden">Enable Tailscale</button>
+                            <button type="button" id="tailscale-disable-btn" class="btn-secondary btn-small hidden">Disable Tailscale</button>
+                        </div>
+                        <p class="setting-hint" id="tailscale-hint"></p>
+                    </div>
+                </div>
+                <!-- Advanced Tab -->
+                <div class="settings-tab-content" id="tab-advanced">
+                    <div class="setting-group">
+                        <label class="setting-label-block">Thumbnail Cache TTL</label>
+                        <p class="setting-description">How long to cache video thumbnails (in seconds). Default: 86400 (24 hours)</p>
+                        <input type="number" id="setting-thumbnail-cache-ttl" min="0" step="1" placeholder="86400">
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label-block">Thumbnail Timestamp</label>
+                        <p class="setting-description">Seconds into video to extract thumbnail from. Default: 3.0</p>
+                        <input type="number" id="setting-thumbnail-timestamp" min="0" step="0.1" placeholder="3.0">
+                    </div>
+                    <div class="setting-group">
+                        <label class="setting-label-block">WebSocket Poll Interval</label>
+                        <p class="setting-description">Seconds between database polls for new messages. Lower = faster updates, higher CPU. Default: 1.0</p>
+                        <input type="number" id="setting-websocket-poll-interval" min="0.1" step="0.1" placeholder="1.0">
+                    </div>
+                </div>
+                <!-- Install Tab -->
+                <div class="settings-tab-content" id="tab-install">
+                    <div class="setting-group">
+                        <h3>Quick Start</h3>
+                        <p class="setting-description">Run iuselinux directly with uvx (no installation required):</p>
+                        <pre class="install-code"><code>uvx iuselinux</code></pre>
+                        <p class="setting-description">This starts the server on <code>localhost:1960</code>. Options:</p>
+                        <pre class="install-code"><code>uvx iuselinux --host 0.0.0.0 --port 8000
+uvx iuselinux --api-token SECRET</code></pre>
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="setting-group">
+                        <h3>Run as Service (Recommended)</h3>
+                        <p class="setting-description">Install as a macOS LaunchAgent that starts on login and auto-restarts:</p>
+                        <pre class="install-code"><code># Basic install (localhost only)
+uvx iuselinux service install
+
+# With custom port
+uvx iuselinux service install --port 8000
+
+# With Tailscale remote access
+uvx iuselinux service install --tailscale</code></pre>
+                        <p class="setting-description">Manage the service:</p>
+                        <pre class="install-code"><code># Check status
+uvx iuselinux service status
+
+# Uninstall
+uvx iuselinux service uninstall</code></pre>
+                        <p class="setting-hint">You can also manage the service from the Service tab above.</p>
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="setting-group">
+                        <h3>Remote Access with Tailscale</h3>
+                        <p class="setting-description">The easiest way to securely access iuselinux from anywhere. Two options:</p>
+                        <h4 class="install-subheading">Option 1: Automatic (via Service)</h4>
+                        <pre class="install-code"><code>uvx iuselinux service install --tailscale</code></pre>
+                        <p class="setting-description">This installs the service and configures <code>tailscale serve</code> automatically. Access at <code>https://your-mac.tailnet-name.ts.net</code></p>
+                        <h4 class="install-subheading">Option 2: Manual Setup</h4>
+                        <pre class="install-code"><code># Run on localhost
+uvx iuselinux
+
+# In another terminal, expose via Tailscale
+tailscale serve 1960</code></pre>
+                        <p class="setting-hint">You can enable/disable Tailscale from the Service tab above.</p>
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="setting-group">
+                        <h3>SSH Tunnel</h3>
+                        <p class="setting-description">Forward the port through SSH for secure remote access:</p>
+                        <pre class="install-code"><code># On your Mac
+uvx iuselinux
+
+# On your remote machine
+ssh -L 1960:localhost:1960 user@your-mac-ip</code></pre>
+                        <p class="setting-description">Then open <code>http://localhost:1960</code> on your remote machine.</p>
+                        <p class="setting-description">For auto-reconnecting tunnels:</p>
+                        <pre class="install-code"><code>autossh -M 0 -o "ServerAliveInterval 30" \
+    -L 1960:localhost:1960 user@your-mac-ip</code></pre>
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="setting-group">
+                        <h3>Local Network Access</h3>
+                        <p class="setting-description">Bind to all interfaces for LAN access:</p>
+                        <pre class="install-code"><code>uvx iuselinux --host 0.0.0.0</code></pre>
+                        <p class="setting-description">Access from any device on your network at <code>http://your-mac-ip:1960</code></p>
+                        <p class="setting-description">Find your Mac's IP:</p>
+                        <pre class="install-code"><code>ipconfig getifaddr en0</code></pre>
+                        <p class="setting-hint install-warning">This exposes iuselinux to everyone on your local network. Use <code>--api-token SECRET</code> for basic protection.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="settings-save" class="btn-primary">Save</button>
+                <button id="settings-cancel" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Compose Modal -->
+    <div id="compose-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content compose-modal-content">
+            <div class="compose-header">
+                <button id="compose-cancel" class="compose-cancel-btn">Cancel</button>
+                <h2>New Message</h2>
+                <div class="compose-spacer"></div>
+            </div>
+            <div class="compose-to-row">
+                <span class="compose-to-label">To:</span>
+                <input type="text" id="compose-recipient" class="compose-recipient-input" placeholder="Phone, email, or name" autocomplete="off">
+            </div>
+            <div id="compose-suggestions" class="compose-suggestions hidden"></div>
+            <div class="compose-body">
+                <textarea id="compose-message" class="compose-message-input" placeholder="Type a message..."></textarea>
+            </div>
+            <div class="compose-footer">
+                <button id="compose-send" class="btn-primary" disabled>Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="modal auth-modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="auth-modal-content">
+            <div class="auth-modal-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0110 0v4"/>
+                </svg>
+            </div>
+            <h2>Authentication Required</h2>
+            <p>This server requires an API token to access.</p>
+            <form id="auth-form">
+                <input type="password" id="auth-token-input" placeholder="Enter API token" autocomplete="current-password">
+                <p id="auth-error" class="auth-error hidden">Invalid token. Please try again.</p>
+                <button type="submit" class="btn-primary">Sign In</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Image Lightbox Modal -->
+    <div id="lightbox-modal" class="lightbox hidden">
+        <div class="lightbox-backdrop"></div>
+        <div class="lightbox-content">
+            <button class="lightbox-close" title="Close">&times;</button>
+            <img id="lightbox-image" src="" alt="Full size image">
+            <div class="lightbox-controls">
+                <a id="lightbox-download" href="" download class="lightbox-btn" title="Download original">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10 13l-4-4h3V3h2v6h3l-4 4z"/>
+                        <path d="M17 15v2H3v-2H1v4h18v-4h-2z"/>
+                    </svg>
+                    Download
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

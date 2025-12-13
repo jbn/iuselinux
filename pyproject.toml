@@ -1,0 +1,78 @@
+[project]
+name = "iuselinux"
+version = "0.1.0"
+description = "Remote iMessage gateway for macOS"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "generativist", email = "jbn@abreka.com" }]
+keywords = ["imessage", "macos", "gateway", "messages", "sms", "apple"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications :: Chat",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Typing :: Typed",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "pydantic>=2.0.0",
+    "pillow>=12.0.0",
+    "pillow-heif>=1.1.1",
+    "websockets>=15.0.1",
+    "click>=8.0.0",
+    "python-multipart>=0.0.20",
+    "packaging>=21.0",
+    "rumps>=0.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.1",
+    "httpx>=0.28.0",
+    "mypy>=1.14.0",
+]
+
+[project.urls]
+Homepage = "https://iuselinux.com"
+Repository = "https://github.com/jbn/iuselinux"
+Issues = "https://github.com/jbn/iuselinux/issues"
+
+[project.scripts]
+iuselinux = "iuselinux.api:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/iuselinux"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.1",
+]
