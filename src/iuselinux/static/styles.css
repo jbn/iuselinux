@@ -1165,6 +1165,56 @@ body.resizing-sidebar {
     margin: 4px 0 8px 0;
 }
 
+/* Install tab styles */
+.install-code {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    padding: 12px;
+    margin: 8px 0;
+    overflow-x: auto;
+}
+
+.install-code code {
+    font-family: 'SF Mono', Monaco, 'Consolas', monospace;
+    font-size: 12px;
+    color: var(--text-primary);
+    white-space: pre;
+}
+
+.install-subheading {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 16px 0 8px 0;
+}
+
+.install-warning {
+    color: var(--status-warning);
+}
+
+.setting-group h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 8px 0;
+}
+
+.setting-group h4 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 12px 0 6px 0;
+}
+
+.setting-description code {
+    background: var(--bg-secondary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'SF Mono', Monaco, 'Consolas', monospace;
+    font-size: 12px;
+}
+
 /* New message indicator */
 .new-message-indicator {
     position: absolute;
