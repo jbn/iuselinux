@@ -158,10 +158,80 @@ def _check_and_report_db_access() -> bool:
     return _db_accessible
 
 
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+
+from . import __version__
+
+# Background update check task
+_update_check_task: asyncio.Task[None] | None = None
+
+
+async def periodic_update_check() -> None:
+    """Background task to periodically check for and apply updates."""
+    from . import updater as bg_updater_module
+
+    # Wait a bit before first check (let server start up)
+    await asyncio.sleep(60)
+
+    while True:
+        try:
+            interval: int = get_config_value("update_check_interval")
+            auto_update: bool = get_config_value("auto_update_enabled")
+
+            if not auto_update:
+                await asyncio.sleep(interval)
+                continue
+
+            status = bg_updater_module.get_update_status(force_check=True)
+
+            if status.get("update_available"):
+                logger.info(
+                    "Update available: %s -> %s",
+                    status["current_version"],
+                    status["latest_version"],
+                )
+                success, message = bg_updater_module.perform_update()
+                if success:
+                    logger.info("Update installed, scheduling restart")
+                    bg_updater_module.schedule_restart(delay_seconds=5.0)
+                    break  # Exit loop, restart will happen
+                else:
+                    logger.error("Auto-update failed: %s", message)
+
+            await asyncio.sleep(interval)
+
+        except Exception as e:
+            logger.error("Update check failed: %s", e)
+            await asyncio.sleep(3600)  # Wait an hour on error
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Application lifespan manager."""
+    global _update_check_task
+
+    # Start background update check if enabled
+    if get_config_value("auto_update_enabled"):
+        _update_check_task = asyncio.create_task(periodic_update_check())
+        logger.info("Background update check task started")
+
+    yield
+
+    # Cleanup
+    if _update_check_task:
+        _update_check_task.cancel()
+        try:
+            await _update_check_task
+        except asyncio.CancelledError:
+            pass
+
+
 app = FastAPI(
     title="iUseLinux",
     description="Read and send iMessages via local API",
-    version="0.1.0",
+    version=__version__,
+    lifespan=lifespan,
 )
 
 # Static files directory
@@ -1344,6 +1414,8 @@ class ConfigResponse(BaseModel):
     thumbnail_cache_ttl: int = 86400
     thumbnail_timestamp: float = 3.0
     websocket_poll_interval: float = 1.0
+    auto_update_enabled: bool = True
+    update_check_interval: int = 86400
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -1361,6 +1433,8 @@ class ConfigUpdateRequest(BaseModel):
     thumbnail_cache_ttl: int | None = None
     thumbnail_timestamp: float | None = None
     websocket_poll_interval: float | None = None
+    auto_update_enabled: bool | None = None
+    update_check_interval: int | None = None
 
 
 @app.get("/config", response_model=ConfigResponse)
@@ -1522,6 +1596,72 @@ def disable_tailscale() -> ServiceActionResponse:
     """Disable Tailscale serve."""
     success, message = service_api_module.disable_tailscale_serve()
     return ServiceActionResponse(success=success, message=message)
+
+
+# Version and update endpoints
+
+from . import updater as updater_module
+
+
+class VersionResponse(BaseModel):
+    """Version information response."""
+
+    current_version: str
+    latest_version: str | None
+    update_available: bool
+    last_check: str | None
+    error: str | None = None
+
+
+class UpdateResponse(BaseModel):
+    """Update action response."""
+
+    success: bool
+    message: str
+    requires_restart: bool = False
+
+
+@app.get("/version", response_model=VersionResponse)
+def get_version_info() -> VersionResponse:
+    """Get current version and check for updates."""
+    status = updater_module.get_update_status()
+    return VersionResponse(**status)
+
+
+@app.post("/version/check", response_model=VersionResponse)
+def check_for_updates() -> VersionResponse:
+    """Force check for updates."""
+    status = updater_module.get_update_status(force_check=True)
+    return VersionResponse(**status)
+
+
+@app.post("/version/update", response_model=UpdateResponse)
+def trigger_update() -> UpdateResponse:
+    """Trigger an update and restart."""
+    status = updater_module.get_update_status(force_check=True)
+
+    if not status.get("update_available"):
+        return UpdateResponse(
+            success=False,
+            message="No update available",
+            requires_restart=False,
+        )
+
+    success, message = updater_module.perform_update()
+
+    if success:
+        updater_module.schedule_restart(delay_seconds=2.0)
+        return UpdateResponse(
+            success=True,
+            message=message,
+            requires_restart=True,
+        )
+
+    return UpdateResponse(
+        success=False,
+        message=message,
+        requires_restart=False,
+    )
 
 
 # WebSocket for real-time updates

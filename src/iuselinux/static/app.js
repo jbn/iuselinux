@@ -1406,6 +1406,12 @@ async function openSettings() {
         settingWebsocketPollInterval.value = currentConfig.websocket_poll_interval ?? 1.0;
     }
 
+    // Populate auto-update setting
+    const settingAutoUpdate = document.getElementById('setting-auto-update');
+    if (settingAutoUpdate) {
+        settingAutoUpdate.checked = currentConfig.auto_update_enabled !== false;
+    }
+
     settingsModal.classList.remove('hidden');
 
     // Check if custom sound exists and update UI
@@ -1413,6 +1419,9 @@ async function openSettings() {
 
     // Fetch health status for about section
     await updateHealthStatus();
+
+    // Fetch version and update status
+    await fetchVersionStatus();
 
     // Update sleep status UI
     await updateSleepStatusUI();
@@ -1480,6 +1489,126 @@ async function updateHealthStatus() {
     }
 }
 
+// Version and update management
+async function fetchVersionStatus() {
+    const versionEl = document.getElementById('app-version');
+    const statusEl = document.getElementById('update-status');
+    const installBtn = document.getElementById('install-update-btn');
+    const messageEl = document.getElementById('update-message');
+
+    try {
+        const res = await apiFetch('/version');
+        const data = await res.json();
+
+        // Update version display
+        if (versionEl) {
+            versionEl.textContent = 'v' + data.current_version;
+        }
+
+        updateVersionUI(data);
+    } catch (err) {
+        console.error('Failed to fetch version:', err);
+        if (versionEl) versionEl.textContent = 'unknown';
+        if (statusEl) {
+            statusEl.textContent = 'Error';
+            statusEl.className = 'status-value error';
+        }
+    }
+}
+
+function updateVersionUI(data) {
+    const statusEl = document.getElementById('update-status');
+    const installBtn = document.getElementById('install-update-btn');
+    const messageEl = document.getElementById('update-message');
+
+    if (!statusEl) return;
+
+    if (data.error) {
+        statusEl.textContent = 'Check failed';
+        statusEl.className = 'status-value warning';
+    } else if (data.update_available) {
+        statusEl.textContent = 'Update available (v' + data.latest_version + ')';
+        statusEl.className = 'status-value warning';
+        if (installBtn) installBtn.classList.remove('hidden');
+    } else {
+        statusEl.textContent = 'Up to date';
+        statusEl.className = 'status-value ok';
+        if (installBtn) installBtn.classList.add('hidden');
+    }
+
+    if (messageEl) messageEl.classList.add('hidden');
+}
+
+async function checkForUpdates() {
+    const statusEl = document.getElementById('update-status');
+    const btn = document.getElementById('check-updates-btn');
+
+    if (statusEl) statusEl.textContent = 'Checking...';
+    if (btn) btn.disabled = true;
+
+    try {
+        const res = await apiFetch('/version/check', { method: 'POST' });
+        const data = await res.json();
+        updateVersionUI(data);
+    } catch (err) {
+        console.error('Failed to check for updates:', err);
+        if (statusEl) {
+            statusEl.textContent = 'Check failed';
+            statusEl.className = 'status-value error';
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function installUpdate() {
+    const statusEl = document.getElementById('update-status');
+    const btn = document.getElementById('install-update-btn');
+    const messageEl = document.getElementById('update-message');
+
+    if (statusEl) statusEl.textContent = 'Installing...';
+    if (btn) btn.disabled = true;
+
+    try {
+        const res = await apiFetch('/version/update', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.success) {
+            if (statusEl) {
+                statusEl.textContent = 'Restarting...';
+                statusEl.className = 'status-value ok';
+            }
+            if (messageEl) {
+                messageEl.textContent = 'Update installed. Server is restarting...';
+                messageEl.classList.remove('hidden');
+            }
+            // Reload page after a delay to give server time to restart
+            setTimeout(() => window.location.reload(), 5000);
+        } else {
+            if (statusEl) {
+                statusEl.textContent = 'Update failed';
+                statusEl.className = 'status-value error';
+            }
+            if (messageEl) {
+                messageEl.textContent = data.message;
+                messageEl.classList.remove('hidden');
+            }
+        }
+    } catch (err) {
+        console.error('Failed to install update:', err);
+        if (statusEl) {
+            statusEl.textContent = 'Update failed';
+            statusEl.className = 'status-value error';
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+// Update button event listeners
+document.getElementById('check-updates-btn')?.addEventListener('click', checkForUpdates);
+document.getElementById('install-update-btn')?.addEventListener('click', installUpdate);
+
 function closeSettings() {
     settingsModal.classList.add('hidden');
 }
@@ -1491,6 +1620,7 @@ async function saveSettings() {
     const settingThumbnailCacheTtl = document.getElementById('setting-thumbnail-cache-ttl');
     const settingThumbnailTimestamp = document.getElementById('setting-thumbnail-timestamp');
     const settingWebsocketPollInterval = document.getElementById('setting-websocket-poll-interval');
+    const settingAutoUpdate = document.getElementById('setting-auto-update');
 
     const updates = {
         prevent_sleep: settingPreventSleep.checked,
@@ -1500,6 +1630,7 @@ async function saveSettings() {
         notification_sound_enabled: settingNotificationSound ? settingNotificationSound.checked : true,
         use_custom_notification_sound: settingUseCustomSound ? settingUseCustomSound.checked : false,
         theme: settingTheme ? settingTheme.value : 'auto',
+        auto_update_enabled: settingAutoUpdate ? settingAutoUpdate.checked : true,
         // Advanced settings
         thumbnail_cache_ttl: settingThumbnailCacheTtl ? parseInt(settingThumbnailCacheTtl.value, 10) || 86400 : 86400,
         thumbnail_timestamp: settingThumbnailTimestamp ? parseFloat(settingThumbnailTimestamp.value) || 3.0 : 3.0,

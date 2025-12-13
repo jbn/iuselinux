@@ -28,6 +28,9 @@ DEFAULTS: dict[str, Any] = {
     "thumbnail_timestamp": 3.0,  # Seconds into video for thumbnail extraction
     "websocket_poll_interval": 1.0,  # Seconds between WebSocket database polls
     "pending_message_delay": 5.0,  # Seconds before unconfirmed messages show reduced opacity
+    # Auto-update settings
+    "auto_update_enabled": True,  # Automatically install updates when available
+    "update_check_interval": 86400,  # Seconds between update checks (default 24 hours)
 }
 
 
