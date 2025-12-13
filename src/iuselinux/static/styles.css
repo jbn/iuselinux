@@ -1856,6 +1856,51 @@ body.resizing-sidebar {
     font-style: italic;
 }
 
+/* Service management */
+.service-status,
+.tailscale-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+}
+
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+}
+
+.status-indicator.running {
+    background: var(--status-sent);
+}
+
+.status-indicator.stopped {
+    background: var(--status-error);
+}
+
+.status-indicator.unavailable {
+    background: var(--text-secondary);
+}
+
+.service-controls,
+.tailscale-controls {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.setting-hint {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+    font-style: italic;
+}
+
 /* Attachment upload UI - iMessage style */
 .send-form {
     flex-direction: column;

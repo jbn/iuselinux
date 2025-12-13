@@ -67,6 +67,7 @@
             </div>
             <div class="settings-tabs">
                 <button class="settings-tab active" data-tab="general">General</button>
+                <button class="settings-tab" data-tab="service">Service</button>
                 <button class="settings-tab" data-tab="advanced">Advanced</button>
             </div>
             <div class="modal-body">
@@ -155,6 +156,35 @@
                             <span class="status-label">Contacts:</span>
                             <span id="status-contacts" class="status-value">checking...</span>
                         </div>
+                    </div>
+                </div>
+                <!-- Service Tab -->
+                <div class="settings-tab-content" id="tab-service">
+                    <div class="setting-group">
+                        <h3>LaunchAgent Service</h3>
+                        <p class="setting-description">Install iuselinux as a macOS service that starts automatically on login and restarts on failure.</p>
+                        <div class="service-status" id="service-status">
+                            <span class="status-indicator" id="service-status-indicator"></span>
+                            <span id="service-status-text">Checking...</span>
+                        </div>
+                        <div class="service-controls">
+                            <button type="button" id="service-install-btn" class="btn-primary btn-small">Install Service</button>
+                            <button type="button" id="service-uninstall-btn" class="btn-secondary btn-small btn-danger hidden">Uninstall Service</button>
+                        </div>
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="setting-group">
+                        <h3>Tailscale Remote Access</h3>
+                        <p class="setting-description">Enable Tailscale serve to access iuselinux from anywhere on your tailnet with automatic HTTPS.</p>
+                        <div class="tailscale-status" id="tailscale-status">
+                            <span class="status-indicator" id="tailscale-status-indicator"></span>
+                            <span id="tailscale-status-text">Checking...</span>
+                        </div>
+                        <div class="tailscale-controls">
+                            <button type="button" id="tailscale-enable-btn" class="btn-primary btn-small hidden">Enable Tailscale</button>
+                            <button type="button" id="tailscale-disable-btn" class="btn-secondary btn-small hidden">Disable Tailscale</button>
+                        </div>
+                        <p class="setting-hint" id="tailscale-hint"></p>
                     </div>
                 </div>
                 <!-- Advanced Tab -->
