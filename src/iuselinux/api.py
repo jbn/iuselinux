@@ -158,10 +158,80 @@ def _check_and_report_db_access() -> bool:
     return _db_accessible
 
 
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+
+from . import __version__
+
+# Background update check task
+_update_check_task: asyncio.Task[None] | None = None
+
+
+async def periodic_update_check() -> None:
+    """Background task to periodically check for and apply updates."""
+    from . import updater as bg_updater_module
+
+    # Wait a bit before first check (let server start up)
+    await asyncio.sleep(60)
+
+    while True:
+        try:
+            interval: int = get_config_value("update_check_interval")
+            auto_update: bool = get_config_value("auto_update_enabled")
+
+            if not auto_update:
+                await asyncio.sleep(interval)
+                continue
+
+            status = bg_updater_module.get_update_status(force_check=True)
+
+            if status.get("update_available"):
+                logger.info(
+                    "Update available: %s -> %s",
+                    status["current_version"],
+                    status["latest_version"],
+                )
+                success, message = bg_updater_module.perform_update()
+                if success:
+                    logger.info("Update installed, scheduling restart")
+                    bg_updater_module.schedule_restart(delay_seconds=5.0)
+                    break  # Exit loop, restart will happen
+                else:
+                    logger.error("Auto-update failed: %s", message)
+
+            await asyncio.sleep(interval)
+
+        except Exception as e:
+            logger.error("Update check failed: %s", e)
+            await asyncio.sleep(3600)  # Wait an hour on error
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Application lifespan manager."""
+    global _update_check_task
+
+    # Start background update check if enabled
+    if get_config_value("auto_update_enabled"):
+        _update_check_task = asyncio.create_task(periodic_update_check())
+        logger.info("Background update check task started")
+
+    yield
+
+    # Cleanup
+    if _update_check_task:
+        _update_check_task.cancel()
+        try:
+            await _update_check_task
+        except asyncio.CancelledError:
+            pass
+
+
 app = FastAPI(
     title="iUseLinux",
     description="Read and send iMessages via local API",
-    version="0.1.0",
+    version=__version__,
+    lifespan=lifespan,
 )
 
 # Static files directory
@@ -1344,6 +1414,8 @@ class ConfigResponse(BaseModel):
     thumbnail_cache_ttl: int = 86400
     thumbnail_timestamp: float = 3.0
     websocket_poll_interval: float = 1.0
+    auto_update_enabled: bool = True
+    update_check_interval: int = 86400
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -1361,6 +1433,8 @@ class ConfigUpdateRequest(BaseModel):
     thumbnail_cache_ttl: int | None = None
     thumbnail_timestamp: float | None = None
     websocket_poll_interval: float | None = None
+    auto_update_enabled: bool | None = None
+    update_check_interval: int | None = None
 
 
 @app.get("/config", response_model=ConfigResponse)
@@ -1490,13 +1564,33 @@ def install_service(
     port: int = Query(default=1960, description="Port to bind to"),
     tailscale: bool = Query(default=False, description="Enable Tailscale serve"),
 ) -> ServiceActionResponse:
-    """Install and start the LaunchAgent service."""
+    """Install and start the LaunchAgent service.
+
+    If tailscale=true, Tailscale serve will be configured to start/stop
+    with the iuselinux service, tying their lifecycles together.
+    """
+    # Configure Tailscale before installing (so the service picks up the config)
+    if tailscale:
+        if not service_api_module.is_tailscale_available():
+            return ServiceActionResponse(
+                success=False,
+                message="Tailscale CLI not found. Install Tailscale from https://tailscale.com/download"
+            )
+        if not service_api_module.is_tailscale_connected():
+            return ServiceActionResponse(
+                success=False,
+                message="Tailscale is not connected. Run 'tailscale up' to connect."
+            )
+        # Save config - the serve command will enable Tailscale on startup
+        update_config({
+            "tailscale_serve_enabled": True,
+            "tailscale_serve_port": port,
+        })
+
     success, message = service_api_module.install(host=host, port=port, force=True)
 
     if success and tailscale:
-        ts_success, ts_message = service_api_module.enable_tailscale_serve(port=port)
-        if not ts_success:
-            message += f"\n\nTailscale warning: {ts_message}"
+        message += "\n\nTailscale serve is managed by the iuselinux service."
 
     return ServiceActionResponse(success=success, message=message)
 
@@ -1512,16 +1606,101 @@ def uninstall_service() -> ServiceActionResponse:
 def enable_tailscale(
     port: int = Query(default=1960, description="Port to serve"),
 ) -> ServiceActionResponse:
-    """Enable Tailscale serve for remote access."""
-    success, message = service_api_module.enable_tailscale_serve(port=port)
+    """Enable Tailscale serve for remote access.
+
+    This enables Tailscale serve immediately and saves the config so it
+    will be re-enabled on service restart.
+    """
+    success, message = service_api_module.enable_tailscale_serve(port=port, background=False)
+    if success:
+        # Save config so it persists across restarts
+        update_config({
+            "tailscale_serve_enabled": True,
+            "tailscale_serve_port": port,
+        })
     return ServiceActionResponse(success=success, message=message)
 
 
 @app.post("/service/tailscale/disable", response_model=ServiceActionResponse)
 def disable_tailscale() -> ServiceActionResponse:
-    """Disable Tailscale serve."""
+    """Disable Tailscale serve.
+
+    This disables Tailscale serve immediately and clears the config so it
+    won't be re-enabled on service restart.
+    """
     success, message = service_api_module.disable_tailscale_serve()
+    if success:
+        # Clear config so it doesn't re-enable on restart
+        update_config({
+            "tailscale_serve_enabled": False,
+        })
     return ServiceActionResponse(success=success, message=message)
+
+
+# Version and update endpoints
+
+from . import updater as updater_module
+
+
+class VersionResponse(BaseModel):
+    """Version information response."""
+
+    current_version: str
+    latest_version: str | None
+    update_available: bool
+    last_check: str | None
+    error: str | None = None
+
+
+class UpdateResponse(BaseModel):
+    """Update action response."""
+
+    success: bool
+    message: str
+    requires_restart: bool = False
+
+
+@app.get("/version", response_model=VersionResponse)
+def get_version_info() -> VersionResponse:
+    """Get current version and check for updates."""
+    status = updater_module.get_update_status()
+    return VersionResponse(**status)
+
+
+@app.post("/version/check", response_model=VersionResponse)
+def check_for_updates() -> VersionResponse:
+    """Force check for updates."""
+    status = updater_module.get_update_status(force_check=True)
+    return VersionResponse(**status)
+
+
+@app.post("/version/update", response_model=UpdateResponse)
+def trigger_update() -> UpdateResponse:
+    """Trigger an update and restart."""
+    status = updater_module.get_update_status(force_check=True)
+
+    if not status.get("update_available"):
+        return UpdateResponse(
+            success=False,
+            message="No update available",
+            requires_restart=False,
+        )
+
+    success, message = updater_module.perform_update()
+
+    if success:
+        updater_module.schedule_restart(delay_seconds=2.0)
+        return UpdateResponse(
+            success=True,
+            message=message,
+            requires_restart=True,
+        )
+
+    return UpdateResponse(
+        success=False,
+        message=message,
+        requires_restart=False,
+    )
 
 
 # WebSocket for real-time updates
@@ -1687,9 +1866,28 @@ def serve(host: str, port: int, api_token: str | None) -> None:
         if start_caffeinate():
             print("Caffeinate started - preventing system sleep")
 
+    # Track whether we started Tailscale serve (so we know to clean it up)
+    tailscale_started = False
+
+    # Enable Tailscale serve if configured
+    if config.get("tailscale_serve_enabled", False):
+        ts_port = config.get("tailscale_serve_port", port)
+        # Use the server port if config port doesn't match (user may have changed --port)
+        if ts_port != port:
+            ts_port = port
+        ts_success, ts_message = service_module.enable_tailscale_serve(port=ts_port, background=False)
+        if ts_success:
+            print(f"Tailscale serve enabled on port {ts_port}")
+            tailscale_started = True
+        else:
+            print(f"Warning: Could not enable Tailscale serve: {ts_message}")
+
     def cleanup(signum: int | None = None, frame: FrameType | None = None) -> None:
-        """Clean up caffeinate process on exit."""
+        """Clean up caffeinate and Tailscale on exit."""
         stop_caffeinate()
+        # Disable Tailscale serve if we started it
+        if tailscale_started:
+            service_module.disable_tailscale_serve()
         sys.exit(0)
 
     # Register signal handlers for clean shutdown
@@ -1700,6 +1898,9 @@ def serve(host: str, port: int, api_token: str | None) -> None:
         uvicorn.run(app, host=host, port=port)
     finally:
         stop_caffeinate()
+        # Also disable Tailscale serve on normal exit
+        if tailscale_started:
+            service_module.disable_tailscale_serve()
 
 
 @main.group()
@@ -1717,22 +1918,43 @@ def service_install(host: str, port: int, force: bool, tailscale: bool) -> None:
     """Install and start the LaunchAgent service.
 
     The service will automatically start on login and restart on failure.
+    If --tailscale is provided, Tailscale serve will be enabled when the
+    server starts and disabled when it stops. This ties the Tailscale
+    lifecycle to the iuselinux service.
     """
+    # Configure Tailscale before installing (so the service picks up the config)
+    if tailscale:
+        # Validate Tailscale is available before proceeding
+        if not service_module.is_tailscale_available():
+            click.echo(click.style(
+                "Error: Tailscale CLI not found. Install Tailscale from https://tailscale.com/download",
+                fg="red"
+            ), err=True)
+            sys.exit(1)
+        if not service_module.is_tailscale_connected():
+            click.echo(click.style(
+                "Error: Tailscale is not connected. Run 'tailscale up' to connect.",
+                fg="red"
+            ), err=True)
+            sys.exit(1)
+
+        # Save Tailscale config - the serve command will enable it on startup
+        update_config({
+            "tailscale_serve_enabled": True,
+            "tailscale_serve_port": port,
+        })
+        click.echo("Tailscale serve configured (will start with service)")
+
     success, message = service_module.install(host=host, port=port, force=force)
     if success:
         click.echo(click.style(message, fg="green"))
         click.echo(f"\nServer will be available at http://{host}:{port}")
 
-        # Enable Tailscale if requested
         if tailscale:
-            click.echo("\nConfiguring Tailscale...")
-            ts_success, ts_message = service_module.enable_tailscale_serve(port=port)
-            if ts_success:
-                click.echo(click.style(ts_message, fg="green"))
-                click.echo("Access via https://your-machine.tailnet-name.ts.net")
-            else:
-                click.echo(click.style(f"Tailscale warning: {ts_message}", fg="yellow"), err=True)
-                click.echo("The service is installed but Tailscale serve was not enabled.")
+            click.echo("\nTailscale serve is managed by the iuselinux service:")
+            click.echo("  - Enabled when service starts")
+            click.echo("  - Disabled when service stops")
+            click.echo("  - Access via https://your-machine.tailnet-name.ts.net")
     else:
         click.echo(click.style(f"Error: {message}", fg="red"), err=True)
         sys.exit(1)
