@@ -633,6 +633,7 @@ body.resizing-sidebar {
 
 .emoji-btn svg {
     display: block;
+    pointer-events: none;
 }
 
 /* Emoji picker popover */
