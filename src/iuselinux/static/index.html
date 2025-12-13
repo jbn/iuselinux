@@ -69,6 +69,7 @@
                 <button class="settings-tab active" data-tab="general">General</button>
                 <button class="settings-tab" data-tab="service">Service</button>
                 <button class="settings-tab" data-tab="advanced">Advanced</button>
+                <button class="settings-tab" data-tab="install">Install</button>
             </div>
             <div class="modal-body">
                 <!-- General Tab -->
@@ -203,6 +204,76 @@
                         <label class="setting-label-block">WebSocket Poll Interval</label>
                         <p class="setting-description">Seconds between database polls for new messages. Lower = faster updates, higher CPU. Default: 1.0</p>
                         <input type="number" id="setting-websocket-poll-interval" min="0.1" step="0.1" placeholder="1.0">
+                    </div>
+                </div>
+                <!-- Install Tab -->
+                <div class="settings-tab-content" id="tab-install">
+                    <div class="setting-group">
+                        <h3>Quick Start</h3>
+                        <p class="setting-description">Run iuselinux directly with uvx (no installation required):</p>
+                        <pre class="install-code"><code>uvx iuselinux</code></pre>
+                        <p class="setting-description">This starts the server on <code>localhost:1960</code>. Options:</p>
+                        <pre class="install-code"><code>uvx iuselinux --host 0.0.0.0 --port 8000
+uvx iuselinux --api-token SECRET</code></pre>
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="setting-group">
+                        <h3>Run as Service (Recommended)</h3>
+                        <p class="setting-description">Install as a macOS LaunchAgent that starts on login and auto-restarts:</p>
+                        <pre class="install-code"><code># Basic install (localhost only)
+uvx iuselinux service install
+
+# With custom port
+uvx iuselinux service install --port 8000
+
+# With Tailscale remote access
+uvx iuselinux service install --tailscale</code></pre>
+                        <p class="setting-description">Manage the service:</p>
+                        <pre class="install-code"><code># Check status
+uvx iuselinux service status
+
+# Uninstall
+uvx iuselinux service uninstall</code></pre>
+                        <p class="setting-hint">You can also manage the service from the Service tab above.</p>
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="setting-group">
+                        <h3>Remote Access with Tailscale</h3>
+                        <p class="setting-description">The easiest way to securely access iuselinux from anywhere. Two options:</p>
+                        <h4 class="install-subheading">Option 1: Automatic (via Service)</h4>
+                        <pre class="install-code"><code>uvx iuselinux service install --tailscale</code></pre>
+                        <p class="setting-description">This installs the service and configures <code>tailscale serve</code> automatically. Access at <code>https://your-mac.tailnet-name.ts.net</code></p>
+                        <h4 class="install-subheading">Option 2: Manual Setup</h4>
+                        <pre class="install-code"><code># Run on localhost
+uvx iuselinux
+
+# In another terminal, expose via Tailscale
+tailscale serve 1960</code></pre>
+                        <p class="setting-hint">You can enable/disable Tailscale from the Service tab above.</p>
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="setting-group">
+                        <h3>SSH Tunnel</h3>
+                        <p class="setting-description">Forward the port through SSH for secure remote access:</p>
+                        <pre class="install-code"><code># On your Mac
+uvx iuselinux
+
+# On your remote machine
+ssh -L 1960:localhost:1960 user@your-mac-ip</code></pre>
+                        <p class="setting-description">Then open <code>http://localhost:1960</code> on your remote machine.</p>
+                        <p class="setting-description">For auto-reconnecting tunnels:</p>
+                        <pre class="install-code"><code>autossh -M 0 -o "ServerAliveInterval 30" \
+    -L 1960:localhost:1960 user@your-mac-ip</code></pre>
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="setting-group">
+                        <h3>Local Network Access</h3>
+                        <p class="setting-description">Bind to all interfaces for LAN access:</p>
+                        <pre class="install-code"><code>uvx iuselinux --host 0.0.0.0</code></pre>
+                        <p class="setting-description">Access from any device on your network at <code>http://your-mac-ip:1960</code></p>
+                        <p class="setting-description">Find your Mac's IP:</p>
+                        <pre class="install-code"><code>ipconfig getifaddr en0</code></pre>
+                        <p class="setting-hint install-warning">This exposes iuselinux to everyone on your local network. Use <code>--api-token SECRET</code> for basic protection.</p>
                     </div>
                 </div>
             </div>
