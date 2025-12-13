@@ -1564,13 +1564,33 @@ def install_service(
     port: int = Query(default=1960, description="Port to bind to"),
     tailscale: bool = Query(default=False, description="Enable Tailscale serve"),
 ) -> ServiceActionResponse:
-    """Install and start the LaunchAgent service."""
+    """Install and start the LaunchAgent service.
+
+    If tailscale=true, Tailscale serve will be configured to start/stop
+    with the iuselinux service, tying their lifecycles together.
+    """
+    # Configure Tailscale before installing (so the service picks up the config)
+    if tailscale:
+        if not service_api_module.is_tailscale_available():
+            return ServiceActionResponse(
+                success=False,
+                message="Tailscale CLI not found. Install Tailscale from https://tailscale.com/download"
+            )
+        if not service_api_module.is_tailscale_connected():
+            return ServiceActionResponse(
+                success=False,
+                message="Tailscale is not connected. Run 'tailscale up' to connect."
+            )
+        # Save config - the serve command will enable Tailscale on startup
+        update_config({
+            "tailscale_serve_enabled": True,
+            "tailscale_serve_port": port,
+        })
+
     success, message = service_api_module.install(host=host, port=port, force=True)
 
     if success and tailscale:
-        ts_success, ts_message = service_api_module.enable_tailscale_serve(port=port)
-        if not ts_success:
-            message += f"\n\nTailscale warning: {ts_message}"
+        message += "\n\nTailscale serve is managed by the iuselinux service."
 
     return ServiceActionResponse(success=success, message=message)
 
@@ -1586,15 +1606,34 @@ def uninstall_service() -> ServiceActionResponse:
 def enable_tailscale(
     port: int = Query(default=1960, description="Port to serve"),
 ) -> ServiceActionResponse:
-    """Enable Tailscale serve for remote access."""
-    success, message = service_api_module.enable_tailscale_serve(port=port)
+    """Enable Tailscale serve for remote access.
+
+    This enables Tailscale serve immediately and saves the config so it
+    will be re-enabled on service restart.
+    """
+    success, message = service_api_module.enable_tailscale_serve(port=port, background=False)
+    if success:
+        # Save config so it persists across restarts
+        update_config({
+            "tailscale_serve_enabled": True,
+            "tailscale_serve_port": port,
+        })
     return ServiceActionResponse(success=success, message=message)
 
 
 @app.post("/service/tailscale/disable", response_model=ServiceActionResponse)
 def disable_tailscale() -> ServiceActionResponse:
-    """Disable Tailscale serve."""
+    """Disable Tailscale serve.
+
+    This disables Tailscale serve immediately and clears the config so it
+    won't be re-enabled on service restart.
+    """
     success, message = service_api_module.disable_tailscale_serve()
+    if success:
+        # Clear config so it doesn't re-enable on restart
+        update_config({
+            "tailscale_serve_enabled": False,
+        })
     return ServiceActionResponse(success=success, message=message)
 
 
@@ -1827,9 +1866,28 @@ def serve(host: str, port: int, api_token: str | None) -> None:
         if start_caffeinate():
             print("Caffeinate started - preventing system sleep")
 
+    # Track whether we started Tailscale serve (so we know to clean it up)
+    tailscale_started = False
+
+    # Enable Tailscale serve if configured
+    if config.get("tailscale_serve_enabled", False):
+        ts_port = config.get("tailscale_serve_port", port)
+        # Use the server port if config port doesn't match (user may have changed --port)
+        if ts_port != port:
+            ts_port = port
+        ts_success, ts_message = service_module.enable_tailscale_serve(port=ts_port, background=False)
+        if ts_success:
+            print(f"Tailscale serve enabled on port {ts_port}")
+            tailscale_started = True
+        else:
+            print(f"Warning: Could not enable Tailscale serve: {ts_message}")
+
     def cleanup(signum: int | None = None, frame: FrameType | None = None) -> None:
-        """Clean up caffeinate process on exit."""
+        """Clean up caffeinate and Tailscale on exit."""
         stop_caffeinate()
+        # Disable Tailscale serve if we started it
+        if tailscale_started:
+            service_module.disable_tailscale_serve()
         sys.exit(0)
 
     # Register signal handlers for clean shutdown
@@ -1840,6 +1898,9 @@ def serve(host: str, port: int, api_token: str | None) -> None:
         uvicorn.run(app, host=host, port=port)
     finally:
         stop_caffeinate()
+        # Also disable Tailscale serve on normal exit
+        if tailscale_started:
+            service_module.disable_tailscale_serve()
 
 
 @main.group()
@@ -1857,22 +1918,43 @@ def service_install(host: str, port: int, force: bool, tailscale: bool) -> None:
     """Install and start the LaunchAgent service.
 
     The service will automatically start on login and restart on failure.
+    If --tailscale is provided, Tailscale serve will be enabled when the
+    server starts and disabled when it stops. This ties the Tailscale
+    lifecycle to the iuselinux service.
     """
+    # Configure Tailscale before installing (so the service picks up the config)
+    if tailscale:
+        # Validate Tailscale is available before proceeding
+        if not service_module.is_tailscale_available():
+            click.echo(click.style(
+                "Error: Tailscale CLI not found. Install Tailscale from https://tailscale.com/download",
+                fg="red"
+            ), err=True)
+            sys.exit(1)
+        if not service_module.is_tailscale_connected():
+            click.echo(click.style(
+                "Error: Tailscale is not connected. Run 'tailscale up' to connect.",
+                fg="red"
+            ), err=True)
+            sys.exit(1)
+
+        # Save Tailscale config - the serve command will enable it on startup
+        update_config({
+            "tailscale_serve_enabled": True,
+            "tailscale_serve_port": port,
+        })
+        click.echo("Tailscale serve configured (will start with service)")
+
     success, message = service_module.install(host=host, port=port, force=force)
     if success:
         click.echo(click.style(message, fg="green"))
         click.echo(f"\nServer will be available at http://{host}:{port}")
 
-        # Enable Tailscale if requested
         if tailscale:
-            click.echo("\nConfiguring Tailscale...")
-            ts_success, ts_message = service_module.enable_tailscale_serve(port=port)
-            if ts_success:
-                click.echo(click.style(ts_message, fg="green"))
-                click.echo("Access via https://your-machine.tailnet-name.ts.net")
-            else:
-                click.echo(click.style(f"Tailscale warning: {ts_message}", fg="yellow"), err=True)
-                click.echo("The service is installed but Tailscale serve was not enabled.")
+            click.echo("\nTailscale serve is managed by the iuselinux service:")
+            click.echo("  - Enabled when service starts")
+            click.echo("  - Disabled when service stops")
+            click.echo("  - Access via https://your-machine.tailnet-name.ts.net")
     else:
         click.echo(click.style(f"Error: {message}", fg="red"), err=True)
         sys.exit(1)

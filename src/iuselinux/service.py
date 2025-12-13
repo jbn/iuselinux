@@ -1,12 +1,13 @@
 """macOS LaunchAgent service management for iuselinux."""
 
-import os
 import plistlib
 import shutil
 import socket
 import subprocess
 import sys
 from pathlib import Path
+
+from .config import update_config
 
 
 # Service constants
@@ -195,6 +196,9 @@ def install(
 def uninstall() -> tuple[bool, str]:
     """Uninstall the LaunchAgent.
 
+    Also disables Tailscale serve if it was enabled, to avoid leaving
+    a dangling port exposed, and clears the Tailscale config.
+
     Returns:
         Tuple of (success, message)
     """
@@ -215,6 +219,14 @@ def uninstall() -> tuple[bool, str]:
 
     # Remove the plist file
     plist_path.unlink()
+
+    # Disable Tailscale serve to avoid leaving a dangling port
+    # This is a best-effort cleanup - we don't fail uninstall if this fails
+    if is_tailscale_available() and is_tailscale_serving():
+        disable_tailscale_serve()
+
+    # Clear Tailscale config so it doesn't auto-enable on reinstall
+    update_config({"tailscale_serve_enabled": False})
 
     return True, "Service uninstalled."
 
@@ -362,8 +374,14 @@ def is_tailscale_serving(port: int = DEFAULT_PORT) -> bool:
     return False
 
 
-def enable_tailscale_serve(port: int = DEFAULT_PORT) -> tuple[bool, str]:
+def enable_tailscale_serve(port: int = DEFAULT_PORT, background: bool = False) -> tuple[bool, str]:
     """Enable tailscale serve for the given port.
+
+    Args:
+        port: The port to serve
+        background: If True, use --bg flag for persistent serve. This is NOT
+                   recommended as it decouples Tailscale lifecycle from iuselinux.
+                   Only use for manual CLI setup.
 
     Returns:
         Tuple of (success, message)
@@ -374,9 +392,13 @@ def enable_tailscale_serve(port: int = DEFAULT_PORT) -> tuple[bool, str]:
     if not is_tailscale_connected():
         return False, "Tailscale is not connected. Run 'tailscale up' to connect."
 
-    # Use --bg to make it persistent across Tailscale restarts
+    cmd = ["tailscale", "serve"]
+    if background:
+        cmd.append("--bg")
+    cmd.append(str(port))
+
     result = subprocess.run(
-        ["tailscale", "serve", "--bg", str(port)],
+        cmd,
         capture_output=True,
         text=True,
     )

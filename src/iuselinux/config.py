@@ -31,6 +31,9 @@ DEFAULTS: dict[str, Any] = {
     # Auto-update settings
     "auto_update_enabled": True,  # Automatically install updates when available
     "update_check_interval": 86400,  # Seconds between update checks (default 24 hours)
+    # Tailscale settings
+    "tailscale_serve_enabled": False,  # Enable Tailscale serve when server starts
+    "tailscale_serve_port": 1960,  # Port for Tailscale serve (should match server port)
 }
 
 
