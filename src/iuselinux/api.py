@@ -1449,6 +1449,81 @@ def prevent_sleep_now() -> SleepStatusResponse:
     )
 
 
+# Service management endpoints
+
+from . import service as service_api_module
+
+
+class ServiceStatusResponse(BaseModel):
+    """Response for service status endpoint."""
+
+    installed: bool
+    loaded: bool
+    running: bool
+    pid: int | None
+    plist_path: str | None
+    stdout_log: str | None = None
+    stderr_log: str | None = None
+    tailscale_available: bool
+    tailscale_connected: bool
+    tailscale_serving: bool
+    tailscale_serve_port: int | None = None
+
+
+@app.get("/service/status", response_model=ServiceStatusResponse)
+def get_service_status() -> ServiceStatusResponse:
+    """Get current service and Tailscale status."""
+    status = service_api_module.get_status()
+    return ServiceStatusResponse(**status)
+
+
+class ServiceActionResponse(BaseModel):
+    """Response for service install/uninstall actions."""
+
+    success: bool
+    message: str
+
+
+@app.post("/service/install", response_model=ServiceActionResponse)
+def install_service(
+    host: str = Query(default="127.0.0.1", description="Host to bind to"),
+    port: int = Query(default=1960, description="Port to bind to"),
+    tailscale: bool = Query(default=False, description="Enable Tailscale serve"),
+) -> ServiceActionResponse:
+    """Install and start the LaunchAgent service."""
+    success, message = service_api_module.install(host=host, port=port, force=True)
+
+    if success and tailscale:
+        ts_success, ts_message = service_api_module.enable_tailscale_serve(port=port)
+        if not ts_success:
+            message += f"\n\nTailscale warning: {ts_message}"
+
+    return ServiceActionResponse(success=success, message=message)
+
+
+@app.post("/service/uninstall", response_model=ServiceActionResponse)
+def uninstall_service() -> ServiceActionResponse:
+    """Stop and uninstall the LaunchAgent service."""
+    success, message = service_api_module.uninstall()
+    return ServiceActionResponse(success=success, message=message)
+
+
+@app.post("/service/tailscale/enable", response_model=ServiceActionResponse)
+def enable_tailscale(
+    port: int = Query(default=1960, description="Port to serve"),
+) -> ServiceActionResponse:
+    """Enable Tailscale serve for remote access."""
+    success, message = service_api_module.enable_tailscale_serve(port=port)
+    return ServiceActionResponse(success=success, message=message)
+
+
+@app.post("/service/tailscale/disable", response_model=ServiceActionResponse)
+def disable_tailscale() -> ServiceActionResponse:
+    """Disable Tailscale serve."""
+    success, message = service_api_module.disable_tailscale_serve()
+    return ServiceActionResponse(success=success, message=message)
+
+
 # WebSocket for real-time updates
 
 
@@ -1554,18 +1629,49 @@ from types import FrameType
 
 import click
 
+from . import service as service_module
 
-@click.command()
+
+class DefaultGroup(click.Group):
+    """A click Group that invokes a default command if no subcommand is given."""
+
+    def __init__(self, *args, default_cmd: str | None = None, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        super().__init__(*args, **kwargs)
+        self.default_cmd = default_cmd
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        # If no args or first arg looks like an option, invoke default command
+        if not args or args[0].startswith("-"):
+            if self.default_cmd:
+                args = [self.default_cmd] + list(args)
+        return super().parse_args(ctx, args)
+
+
+@click.group(cls=DefaultGroup, default_cmd="serve", invoke_without_command=True)
+@click.pass_context
+def main(ctx: click.Context) -> None:
+    """iuselinux - Remote iMessage gateway for macOS."""
+    pass
+
+
+@main.command()
 @click.option("--host", default="127.0.0.1", help="Host to bind to")
-@click.option("--port", default=8000, help="Port to bind to")
+@click.option("--port", default=1960, help="Port to bind to")
 @click.option(
     "--api-token",
     default=None,
     help="Set API token for authentication. If provided, overwrites any existing token.",
 )
-def main(host: str, port: int, api_token: str | None) -> None:
-    """Run the iuselinux server."""
+def serve(host: str, port: int, api_token: str | None) -> None:
+    """Run the iuselinux server (default command)."""
     import uvicorn
+
+    # Check for conflicts (service already running, port in use)
+    can_start, conflict_msg = service_module.check_startup_conflicts(host=host, port=port)
+    if not can_start:
+        click.echo(click.style("Cannot start server:", fg="yellow"))
+        click.echo(conflict_msg)
+        sys.exit(0)  # Exit gracefully, not an error
 
     # Check database access at startup and report any issues
     _check_and_report_db_access()
@@ -1594,6 +1700,66 @@ def main(host: str, port: int, api_token: str | None) -> None:
         uvicorn.run(app, host=host, port=port)
     finally:
         stop_caffeinate()
+
+
+@main.group()
+def service() -> None:
+    """Manage the iuselinux LaunchAgent service."""
+    pass
+
+
+@service.command("install")
+@click.option("--host", default="127.0.0.1", help="Host to bind to")
+@click.option("--port", default=1960, help="Port to bind to")
+@click.option("--force", is_flag=True, help="Overwrite existing installation")
+@click.option("--tailscale", is_flag=True, help="Enable Tailscale serve for remote access")
+def service_install(host: str, port: int, force: bool, tailscale: bool) -> None:
+    """Install and start the LaunchAgent service.
+
+    The service will automatically start on login and restart on failure.
+    """
+    success, message = service_module.install(host=host, port=port, force=force)
+    if success:
+        click.echo(click.style(message, fg="green"))
+        click.echo(f"\nServer will be available at http://{host}:{port}")
+
+        # Enable Tailscale if requested
+        if tailscale:
+            click.echo("\nConfiguring Tailscale...")
+            ts_success, ts_message = service_module.enable_tailscale_serve(port=port)
+            if ts_success:
+                click.echo(click.style(ts_message, fg="green"))
+                click.echo("Access via https://your-machine.tailnet-name.ts.net")
+            else:
+                click.echo(click.style(f"Tailscale warning: {ts_message}", fg="yellow"), err=True)
+                click.echo("The service is installed but Tailscale serve was not enabled.")
+    else:
+        click.echo(click.style(f"Error: {message}", fg="red"), err=True)
+        sys.exit(1)
+
+
+@service.command("uninstall")
+def service_uninstall() -> None:
+    """Stop and uninstall the LaunchAgent service."""
+    success, message = service_module.uninstall()
+    if success:
+        click.echo(click.style(message, fg="green"))
+    else:
+        click.echo(click.style(f"Error: {message}", fg="red"), err=True)
+        sys.exit(1)
+
+
+@service.command("status")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def service_status(as_json: bool) -> None:
+    """Show the status of the LaunchAgent service."""
+    status = service_module.get_status()
+
+    if as_json:
+        import json
+        click.echo(json.dumps(status, indent=2))
+    else:
+        click.echo(service_module.format_status(status))
 
 
 if __name__ == "__main__":

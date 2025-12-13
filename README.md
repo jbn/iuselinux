@@ -34,7 +34,7 @@ Start the server on your Mac:
 iuselinux
 ```
 
-Then open http://127.0.0.1:8000 in your browser.
+Then open http://127.0.0.1:1960 in your browser.
 
 ## Features
 
@@ -54,12 +54,12 @@ The API binds to `127.0.0.1` by default for security. To access it remotely, use
 ### From your remote machine
 
 ```bash
-ssh -L 8000:localhost:8000 user@your-mac-ip
+ssh -L 1960:localhost:1960 user@your-mac-ip
 ```
 
-This forwards your remote machine's `localhost:8000` to the Mac's `localhost:8000`.
+This forwards your remote machine's `localhost:1960` to the Mac's `localhost:1960`.
 
-Now access the API at `http://localhost:8000` from your remote machine.
+Now access the API at `http://localhost:1960` from your remote machine.
 
 ### Persistent tunnel with autossh
 
@@ -77,7 +77,7 @@ Run with auto-reconnect:
 
 ```bash
 autossh -M 0 -o "ServerAliveInterval 30" -o "ServerAliveCountMax 3" \
-    -L 8000:localhost:8000 user@your-mac-ip
+    -L 1960:localhost:1960 user@your-mac-ip
 ```
 
 ### SSH config shortcut
@@ -88,7 +88,7 @@ Add to `~/.ssh/config` on your remote machine:
 Host iuselinux
     HostName your-mac-ip
     User your-username
-    LocalForward 8000 localhost:8000
+    LocalForward 1960 localhost:1960
     ServerAliveInterval 30
     ServerAliveCountMax 3
 ```
@@ -101,10 +101,10 @@ ssh iuselinux
 
 ### Troubleshooting
 
-**Port already in use**: Another process is using port 8000. Either stop it or use a different port:
+**Port already in use**: Another process is using port 1960. Either stop it or use a different port:
 
 ```bash
-ssh -L 9000:localhost:8000 user@your-mac-ip
+ssh -L 9000:localhost:1960 user@your-mac-ip
 # Then access at http://localhost:9000
 ```
 
@@ -146,18 +146,18 @@ tailscale ip -4
 # Example: 100.64.0.1
 
 # On Mac - bind to Tailscale interface only
-iuselinux --host 100.64.0.1 --port 8000
+iuselinux --host 100.64.0.1
 ```
 
 Then access from any device on your tailnet:
-- `http://100.64.0.1:8000` or `http://your-mac.tailnet-name.ts.net:8000`
+- `http://100.64.0.1:1960` or `http://your-mac.tailnet-name.ts.net:1960`
 
 **Security note**: Binding to the Tailscale IP (100.x.x.x) ensures only devices on your tailnet can connect. This is much safer than `--host 0.0.0.0` which exposes the server on all interfaces (local network, etc.).
 
 For additional security, set an API token:
 
 ```bash
-iuselinux --host 100.64.0.1 --port 8000 --api-token YOUR_SECRET_TOKEN
+iuselinux --host 100.64.0.1 --api-token YOUR_SECRET_TOKEN
 ```
 
 ### Option 2: Tailscale Serve (HTTPS with Magic DNS)
@@ -166,10 +166,10 @@ Use `tailscale serve` to expose the server with automatic HTTPS and a clean URL:
 
 ```bash
 # On Mac - start the server on localhost
-iuselinux --host 127.0.0.1 --port 8000
+iuselinux
 
 # In another terminal - expose via Tailscale
-tailscale serve 8000
+tailscale serve 1960
 ```
 
 This gives you:
@@ -196,13 +196,13 @@ If you're paranoid and want double encryption (Tailscale already encrypts everyt
 
 ```bash
 # On Mac - start server on localhost only
-iuselinux --host 127.0.0.1 --port 8000
+iuselinux
 
 # On remote machine - create tunnel over Tailscale
-ssh -L 8000:localhost:8000 user@100.64.0.1
+ssh -L 1960:localhost:1960 user@100.64.0.1
 ```
 
-Then access at `http://localhost:8000` on the remote machine.
+Then access at `http://localhost:1960` on the remote machine.
 
 ### Auto-Serve on Startup
 
@@ -225,7 +225,7 @@ Create `~/Library/LaunchAgents/com.iuselinux.server.plist`:
         <string>--host</string>
         <string>127.0.0.1</string>
         <string>--port</string>
-        <string>8000</string>
+        <string>1960</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -246,7 +246,7 @@ launchctl load ~/Library/LaunchAgents/com.iuselinux.server.plist
 
 Then set up `tailscale serve` to persist (it remembers the configuration):
 ```bash
-tailscale serve --bg 8000
+tailscale serve --bg 1960
 ```
 
 The `--bg` flag makes it persist across Tailscale restarts.
@@ -257,13 +257,13 @@ Create `~/bin/start-iuselinux.sh`:
 ```bash
 #!/bin/bash
 # Start iuselinux server
-iuselinux --host 127.0.0.1 --port 8000 &
+iuselinux &
 
 # Wait for server to start
 sleep 2
 
 # Expose via Tailscale
-tailscale serve 8000
+tailscale serve 1960
 ```
 
 ### Security Notes
@@ -321,9 +321,9 @@ For self-hosted VPN, use [WireGuard](https://www.wireguard.com/).
 
 6. Access the gateway via SSH tunnel over WireGuard:
    ```bash
-   ssh -L 8000:localhost:8000 user@10.0.0.1
+   ssh -L 1960:localhost:1960 user@10.0.0.1
    ```
-   Then open `http://localhost:8000`
+   Then open `http://localhost:1960`
 
 ### Port Forwarding
 

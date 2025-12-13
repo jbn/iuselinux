@@ -1427,6 +1427,11 @@ function switchSettingsTab(tabName) {
     document.querySelectorAll('.settings-tab-content').forEach(content => {
         content.classList.toggle('active', content.id === `tab-${tabName}`);
     });
+
+    // Load service status when switching to service tab
+    if (tabName === 'service') {
+        updateServiceStatusUI();
+    }
 }
 
 async function updateHealthStatus() {
@@ -1623,6 +1628,200 @@ if (allowSleepBtn) {
 const reengageSleepBtn = document.getElementById('reengage-sleep-btn');
 if (reengageSleepBtn) {
     reengageSleepBtn.addEventListener('click', reengageSleepPrevention);
+}
+
+// Service management functionality
+async function updateServiceStatusUI() {
+    const serviceStatusIndicator = document.getElementById('service-status-indicator');
+    const serviceStatusText = document.getElementById('service-status-text');
+    const serviceInstallBtn = document.getElementById('service-install-btn');
+    const serviceUninstallBtn = document.getElementById('service-uninstall-btn');
+    const tailscaleStatusIndicator = document.getElementById('tailscale-status-indicator');
+    const tailscaleStatusText = document.getElementById('tailscale-status-text');
+    const tailscaleEnableBtn = document.getElementById('tailscale-enable-btn');
+    const tailscaleDisableBtn = document.getElementById('tailscale-disable-btn');
+    const tailscaleHint = document.getElementById('tailscale-hint');
+
+    if (!serviceStatusIndicator) return;
+
+    try {
+        const res = await apiFetch('/service/status');
+        if (!res.ok) {
+            console.error('Service status API returned', res.status);
+            return;
+        }
+
+        const status = await res.json();
+
+        // Update service status
+        if (status.running) {
+            serviceStatusIndicator.className = 'status-indicator running';
+            serviceStatusText.textContent = `Running (PID ${status.pid})`;
+            serviceInstallBtn.classList.add('hidden');
+            serviceUninstallBtn.classList.remove('hidden');
+        } else if (status.installed) {
+            serviceStatusIndicator.className = 'status-indicator stopped';
+            serviceStatusText.textContent = 'Installed but not running';
+            serviceInstallBtn.classList.add('hidden');
+            serviceUninstallBtn.classList.remove('hidden');
+        } else {
+            serviceStatusIndicator.className = 'status-indicator stopped';
+            serviceStatusText.textContent = 'Not installed';
+            serviceInstallBtn.classList.remove('hidden');
+            serviceUninstallBtn.classList.add('hidden');
+        }
+
+        // Update Tailscale status
+        if (!status.tailscale_available) {
+            tailscaleStatusIndicator.className = 'status-indicator unavailable';
+            tailscaleStatusText.textContent = 'Tailscale not installed';
+            tailscaleEnableBtn.classList.add('hidden');
+            tailscaleDisableBtn.classList.add('hidden');
+            tailscaleHint.textContent = 'Install Tailscale from tailscale.com to enable remote access.';
+        } else if (!status.tailscale_connected) {
+            tailscaleStatusIndicator.className = 'status-indicator stopped';
+            tailscaleStatusText.textContent = 'Tailscale not connected';
+            tailscaleEnableBtn.classList.add('hidden');
+            tailscaleDisableBtn.classList.add('hidden');
+            tailscaleHint.textContent = 'Run "tailscale up" to connect to your tailnet.';
+        } else if (status.tailscale_serving) {
+            tailscaleStatusIndicator.className = 'status-indicator running';
+            tailscaleStatusText.textContent = `Serving on port ${status.tailscale_serve_port || 1960}`;
+            tailscaleEnableBtn.classList.add('hidden');
+            tailscaleDisableBtn.classList.remove('hidden');
+            tailscaleHint.textContent = 'Access via https://your-machine.tailnet-name.ts.net';
+        } else {
+            tailscaleStatusIndicator.className = 'status-indicator stopped';
+            tailscaleStatusText.textContent = 'Available but not serving';
+            tailscaleEnableBtn.classList.remove('hidden');
+            tailscaleDisableBtn.classList.add('hidden');
+            tailscaleHint.textContent = '';
+        }
+    } catch (err) {
+        console.error('Failed to get service status:', err);
+        serviceStatusText.textContent = 'Error checking status';
+    }
+}
+
+async function installService() {
+    const btn = document.getElementById('service-install-btn');
+    const originalText = btn.textContent;
+    btn.textContent = 'Installing...';
+    btn.disabled = true;
+
+    try {
+        const res = await apiFetch('/service/install', { method: 'POST' });
+        const result = await res.json();
+
+        if (result.success) {
+            await updateServiceStatusUI();
+        } else {
+            alert('Failed to install service: ' + result.message);
+        }
+    } catch (err) {
+        console.error('Failed to install service:', err);
+        alert('Failed to install service');
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function uninstallService() {
+    if (!confirm('This will stop and remove the iuselinux service. Continue?')) {
+        return;
+    }
+
+    const btn = document.getElementById('service-uninstall-btn');
+    const originalText = btn.textContent;
+    btn.textContent = 'Uninstalling...';
+    btn.disabled = true;
+
+    try {
+        const res = await apiFetch('/service/uninstall', { method: 'POST' });
+        const result = await res.json();
+
+        if (result.success) {
+            await updateServiceStatusUI();
+        } else {
+            alert('Failed to uninstall service: ' + result.message);
+        }
+    } catch (err) {
+        console.error('Failed to uninstall service:', err);
+        alert('Failed to uninstall service');
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function enableTailscale() {
+    const btn = document.getElementById('tailscale-enable-btn');
+    const originalText = btn.textContent;
+    btn.textContent = 'Enabling...';
+    btn.disabled = true;
+
+    try {
+        const res = await apiFetch('/service/tailscale/enable', { method: 'POST' });
+        const result = await res.json();
+
+        if (result.success) {
+            await updateServiceStatusUI();
+        } else {
+            alert('Failed to enable Tailscale: ' + result.message);
+        }
+    } catch (err) {
+        console.error('Failed to enable Tailscale:', err);
+        alert('Failed to enable Tailscale');
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function disableTailscale() {
+    const btn = document.getElementById('tailscale-disable-btn');
+    const originalText = btn.textContent;
+    btn.textContent = 'Disabling...';
+    btn.disabled = true;
+
+    try {
+        const res = await apiFetch('/service/tailscale/disable', { method: 'POST' });
+        const result = await res.json();
+
+        if (result.success) {
+            await updateServiceStatusUI();
+        } else {
+            alert('Failed to disable Tailscale: ' + result.message);
+        }
+    } catch (err) {
+        console.error('Failed to disable Tailscale:', err);
+        alert('Failed to disable Tailscale');
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+// Service control button listeners
+const serviceInstallBtn = document.getElementById('service-install-btn');
+if (serviceInstallBtn) {
+    serviceInstallBtn.addEventListener('click', installService);
+}
+
+const serviceUninstallBtn = document.getElementById('service-uninstall-btn');
+if (serviceUninstallBtn) {
+    serviceUninstallBtn.addEventListener('click', uninstallService);
+}
+
+const tailscaleEnableBtn = document.getElementById('tailscale-enable-btn');
+if (tailscaleEnableBtn) {
+    tailscaleEnableBtn.addEventListener('click', enableTailscale);
+}
+
+const tailscaleDisableBtn = document.getElementById('tailscale-disable-btn');
+if (tailscaleDisableBtn) {
+    tailscaleDisableBtn.addEventListener('click', disableTailscale);
 }
 
 // Custom notification sound upload functionality

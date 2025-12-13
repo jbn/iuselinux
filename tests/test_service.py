@@ -1,0 +1,328 @@
+"""Tests for the service module."""
+
+import plistlib
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from iuselinux import service
+
+
+def test_get_launch_agents_dir():
+    """Test that LaunchAgents dir is under user home."""
+    result = service.get_launch_agents_dir()
+    assert result == Path.home() / "Library" / "LaunchAgents"
+
+
+def test_get_plist_path():
+    """Test plist path construction."""
+    result = service.get_plist_path()
+    assert result.name == "com.iuselinux.server.plist"
+    assert "LaunchAgents" in str(result)
+
+
+def test_get_log_paths():
+    """Test log paths are in Library/Logs."""
+    stdout, stderr = service.get_log_paths()
+    assert "Library/Logs/iuselinux" in str(stdout)
+    assert stdout.name == "iuselinux.log"
+    assert stderr.name == "iuselinux.err"
+
+
+def test_generate_plist_structure():
+    """Test plist generation creates valid structure."""
+    plist = service.generate_plist(host="127.0.0.1", port=1960)
+
+    assert plist["Label"] == "com.iuselinux.server"
+    assert plist["RunAtLoad"] is True
+    assert plist["KeepAlive"] is True
+    assert isinstance(plist["ProgramArguments"], list)
+    assert "--port" in plist["ProgramArguments"]
+    assert "1960" in plist["ProgramArguments"]
+    assert "--host" in plist["ProgramArguments"]
+    assert "127.0.0.1" in plist["ProgramArguments"]
+
+
+def test_generate_plist_custom_port():
+    """Test plist uses custom port."""
+    plist = service.generate_plist(host="0.0.0.0", port=9999)
+
+    assert "9999" in plist["ProgramArguments"]
+    assert "0.0.0.0" in plist["ProgramArguments"]
+
+
+def test_is_installed_false(tmp_path, monkeypatch):
+    """Test is_installed returns False when plist doesn't exist."""
+    monkeypatch.setattr(service, "get_plist_path", lambda: tmp_path / "nonexistent.plist")
+    assert service.is_installed() is False
+
+
+def test_is_installed_true(tmp_path, monkeypatch):
+    """Test is_installed returns True when plist exists."""
+    plist_path = tmp_path / "test.plist"
+    plist_path.touch()
+    monkeypatch.setattr(service, "get_plist_path", lambda: plist_path)
+    assert service.is_installed() is True
+
+
+@patch("subprocess.run")
+def test_is_loaded_true(mock_run):
+    """Test is_loaded returns True when launchctl list succeeds."""
+    mock_run.return_value = MagicMock(returncode=0)
+    assert service.is_loaded() is True
+    mock_run.assert_called_once()
+
+
+@patch("subprocess.run")
+def test_is_loaded_false(mock_run):
+    """Test is_loaded returns False when launchctl list fails."""
+    mock_run.return_value = MagicMock(returncode=1)
+    assert service.is_loaded() is False
+
+
+@patch("subprocess.run")
+def test_get_pid_running(mock_run):
+    """Test get_pid returns PID when service is running."""
+    mock_run.return_value = MagicMock(returncode=0, stdout="12345\t0\tcom.iuselinux.server")
+    assert service.get_pid() == 12345
+
+
+@patch("subprocess.run")
+def test_get_pid_not_running(mock_run):
+    """Test get_pid returns None when service is not running."""
+    mock_run.return_value = MagicMock(returncode=0, stdout="-\t0\tcom.iuselinux.server")
+    assert service.get_pid() is None
+
+
+@patch("subprocess.run")
+def test_get_pid_not_loaded(mock_run):
+    """Test get_pid returns None when service is not loaded."""
+    mock_run.return_value = MagicMock(returncode=1)
+    assert service.get_pid() is None
+
+
+def test_get_status_not_installed(tmp_path, monkeypatch):
+    """Test get_status when service is not installed."""
+    monkeypatch.setattr(service, "get_plist_path", lambda: tmp_path / "nonexistent.plist")
+
+    status = service.get_status()
+
+    assert status["installed"] is False
+    assert status["loaded"] is False
+    assert status["running"] is False
+    assert status["pid"] is None
+
+
+def test_format_status_not_installed():
+    """Test format_status for not installed service."""
+    status = {
+        "installed": False,
+        "loaded": False,
+        "running": False,
+        "pid": None,
+        "plist_path": None,
+    }
+    output = service.format_status(status)
+    assert "not installed" in output
+    assert "iuselinux service install" in output
+
+
+def test_format_status_running():
+    """Test format_status for running service."""
+    status = {
+        "installed": True,
+        "loaded": True,
+        "running": True,
+        "pid": 12345,
+        "plist_path": "/path/to/plist",
+        "stdout_log": "/path/to/log",
+    }
+    output = service.format_status(status)
+    assert "running" in output
+    assert "12345" in output
+
+
+def test_uninstall_not_installed(tmp_path, monkeypatch):
+    """Test uninstall fails when not installed."""
+    monkeypatch.setattr(service, "get_plist_path", lambda: tmp_path / "nonexistent.plist")
+
+    success, message = service.uninstall()
+
+    assert success is False
+    assert "not installed" in message
+
+
+@patch("subprocess.run")
+def test_install_already_installed(mock_run, tmp_path, monkeypatch):
+    """Test install fails when already installed without --force."""
+    plist_path = tmp_path / "test.plist"
+    plist_path.touch()
+    monkeypatch.setattr(service, "get_plist_path", lambda: plist_path)
+
+    success, message = service.install()
+
+    assert success is False
+    assert "already installed" in message
+
+
+# Tailscale tests
+
+@patch("shutil.which")
+def test_is_tailscale_available_true(mock_which):
+    """Test is_tailscale_available returns True when tailscale is in PATH."""
+    mock_which.return_value = "/usr/local/bin/tailscale"
+    assert service.is_tailscale_available() is True
+
+
+@patch("shutil.which")
+def test_is_tailscale_available_false(mock_which):
+    """Test is_tailscale_available returns False when tailscale is not found."""
+    mock_which.return_value = None
+    assert service.is_tailscale_available() is False
+
+
+@patch("subprocess.run")
+@patch("shutil.which")
+def test_is_tailscale_connected_true(mock_which, mock_run):
+    """Test is_tailscale_connected returns True when connected."""
+    mock_which.return_value = "/usr/local/bin/tailscale"
+    mock_run.return_value = MagicMock(
+        returncode=0,
+        stdout='{"BackendState": "Running"}'
+    )
+    assert service.is_tailscale_connected() is True
+
+
+@patch("subprocess.run")
+@patch("shutil.which")
+def test_is_tailscale_connected_false(mock_which, mock_run):
+    """Test is_tailscale_connected returns False when not connected."""
+    mock_which.return_value = "/usr/local/bin/tailscale"
+    mock_run.return_value = MagicMock(
+        returncode=0,
+        stdout='{"BackendState": "NeedsLogin"}'
+    )
+    assert service.is_tailscale_connected() is False
+
+
+@patch("shutil.which")
+def test_is_tailscale_connected_not_available(mock_which):
+    """Test is_tailscale_connected returns False when tailscale not available."""
+    mock_which.return_value = None
+    assert service.is_tailscale_connected() is False
+
+
+@patch("subprocess.run")
+@patch("shutil.which")
+def test_enable_tailscale_serve_success(mock_which, mock_run):
+    """Test enabling tailscale serve successfully."""
+    mock_which.return_value = "/usr/local/bin/tailscale"
+    # First call for is_tailscale_connected, second for tailscale serve
+    mock_run.side_effect = [
+        MagicMock(returncode=0, stdout='{"BackendState": "Running"}'),
+        MagicMock(returncode=0, stdout="", stderr=""),
+    ]
+
+    success, message = service.enable_tailscale_serve(port=1960)
+
+    assert success is True
+    assert "1960" in message
+
+
+@patch("shutil.which")
+def test_enable_tailscale_serve_not_available(mock_which):
+    """Test enabling tailscale serve fails when not available."""
+    mock_which.return_value = None
+
+    success, message = service.enable_tailscale_serve()
+
+    assert success is False
+    assert "not found" in message.lower()
+
+
+@patch("subprocess.run")
+@patch("shutil.which")
+def test_get_tailscale_status(mock_which, mock_run):
+    """Test get_tailscale_status returns correct structure."""
+    mock_which.return_value = "/usr/local/bin/tailscale"
+    mock_run.return_value = MagicMock(
+        returncode=0,
+        stdout='{"BackendState": "Running"}'
+    )
+
+    status = service.get_tailscale_status()
+
+    assert "tailscale_available" in status
+    assert "tailscale_connected" in status
+    assert "tailscale_serving" in status
+
+
+# Port detection tests
+
+def test_is_port_in_use_available():
+    """Test is_port_in_use returns False for available port."""
+    # Use a high port that's unlikely to be in use
+    result = service.is_port_in_use(host="127.0.0.1", port=59999)
+    assert result is False
+
+
+@patch("socket.socket")
+def test_is_port_in_use_busy(mock_socket):
+    """Test is_port_in_use returns True when port is busy."""
+    mock_sock_instance = MagicMock()
+    mock_sock_instance.bind.side_effect = OSError("Address already in use")
+    mock_socket.return_value.__enter__.return_value = mock_sock_instance
+
+    result = service.is_port_in_use(host="127.0.0.1", port=1960)
+    assert result is True
+
+
+@patch("subprocess.run")
+def test_check_startup_conflicts_service_running(mock_run, tmp_path, monkeypatch):
+    """Test check_startup_conflicts detects running service."""
+    # Make it look like service is installed and running
+    plist_path = tmp_path / "test.plist"
+    plist_path.touch()
+    monkeypatch.setattr(service, "get_plist_path", lambda: plist_path)
+
+    # Mock launchctl to show service is loaded and running
+    mock_run.return_value = MagicMock(returncode=0, stdout="12345\t0\tcom.iuselinux.server")
+
+    can_start, message = service.check_startup_conflicts()
+
+    assert can_start is False
+    assert "already running" in message
+    assert "12345" in message
+
+
+@patch("subprocess.run")
+def test_check_startup_conflicts_port_in_use(mock_run, tmp_path, monkeypatch):
+    """Test check_startup_conflicts detects port in use."""
+    # Service is not installed
+    monkeypatch.setattr(service, "get_plist_path", lambda: tmp_path / "nonexistent.plist")
+    mock_run.return_value = MagicMock(returncode=1)
+
+    # Mock port as in use
+    monkeypatch.setattr(service, "is_port_in_use", lambda host, port: True)
+
+    can_start, message = service.check_startup_conflicts()
+
+    assert can_start is False
+    assert "already in use" in message
+
+
+@patch("subprocess.run")
+def test_check_startup_conflicts_no_conflict(mock_run, tmp_path, monkeypatch):
+    """Test check_startup_conflicts allows start when no conflicts."""
+    # Service is not installed
+    monkeypatch.setattr(service, "get_plist_path", lambda: tmp_path / "nonexistent.plist")
+    mock_run.return_value = MagicMock(returncode=1)
+
+    # Port is available
+    monkeypatch.setattr(service, "is_port_in_use", lambda host, port: False)
+
+    can_start, message = service.check_startup_conflicts()
+
+    assert can_start is True
+    assert message is None
