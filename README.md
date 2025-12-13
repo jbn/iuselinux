@@ -160,35 +160,69 @@ For additional security, set an API token:
 iuselinux --host 100.64.0.1 --api-token YOUR_SECRET_TOKEN
 ```
 
-### Option 2: Tailscale Serve (HTTPS with Magic DNS)
+### Option 2: Tailscale Serve (HTTPS with Magic DNS) - Recommended
 
-Use `tailscale serve` to expose the server with automatic HTTPS and a clean URL:
+Use the built-in Tailscale integration for automatic HTTPS and lifecycle management:
 
 ```bash
-# On Mac - start the server on localhost
-iuselinux
-
-# In another terminal - expose via Tailscale
-tailscale serve 1960
+# Install as a service with Tailscale enabled
+iuselinux service install --tailscale
 ```
 
 This gives you:
 - HTTPS URL like `https://your-mac.tailnet-name.ts.net`
 - Automatic TLS certificates
 - No need to remember port numbers
+- **Tailscale serve lifecycle tied to iuselinux** - it starts and stops with the service
 
 Access from any device on your tailnet:
 - `https://your-mac.tailnet-name.ts.net`
 
-To stop serving:
+To check status:
 ```bash
-tailscale serve off
+iuselinux service status
 ```
 
-To check current serve status:
+To uninstall (this also disables Tailscale serve):
 ```bash
-tailscale serve status
+iuselinux service uninstall
 ```
+
+#### Important: Tailscale Lifecycle Management
+
+When you use `--tailscale`, iuselinux manages the Tailscale serve lifecycle:
+
+- **Tailscale serve starts** when iuselinux starts
+- **Tailscale serve stops** when iuselinux stops (graceful shutdown, crash, or uninstall)
+- **Uninstalling clears Tailscale config** - no dangling ports left exposed
+
+This is a security feature. If iuselinux stops for any reason, Tailscale won't continue exposing the port to your tailnet.
+
+#### Manual Tailscale Control
+
+You can also enable/disable Tailscale serve via the web UI settings, or via API:
+
+```bash
+# Enable (also saves config for restarts)
+curl -X POST "http://localhost:1960/service/tailscale/enable?port=1960"
+
+# Disable (also clears config)
+curl -X POST "http://localhost:1960/service/tailscale/disable"
+```
+
+#### Legacy Manual Setup (Not Recommended)
+
+If you prefer to manage Tailscale serve separately (not recommended as it decouples lifecycles):
+
+```bash
+# Start iuselinux without --tailscale
+iuselinux service install
+
+# Manually run tailscale serve with --bg for persistence
+tailscale serve --bg 1960
+```
+
+**Warning**: With this approach, if you uninstall iuselinux, Tailscale will continue serving port 1960. You must manually run `tailscale serve off` to clean up.
 
 ### Option 3: SSH Tunnel over Tailscale (Overkill)
 
@@ -203,68 +237,6 @@ ssh -L 1960:localhost:1960 user@100.64.0.1
 ```
 
 Then access at `http://localhost:1960` on the remote machine.
-
-### Auto-Serve on Startup
-
-To automatically start both iuselinux and `tailscale serve` when you log in:
-
-**Using launchd (recommended for macOS):**
-
-Create `~/Library/LaunchAgents/com.iuselinux.server.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.iuselinux.server</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/path/to/iuselinux</string>
-        <string>--host</string>
-        <string>127.0.0.1</string>
-        <string>--port</string>
-        <string>1960</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/tmp/iuselinux.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/iuselinux.err</string>
-</dict>
-</plist>
-```
-
-Load it with:
-```bash
-launchctl load ~/Library/LaunchAgents/com.iuselinux.server.plist
-```
-
-Then set up `tailscale serve` to persist (it remembers the configuration):
-```bash
-tailscale serve --bg 1960
-```
-
-The `--bg` flag makes it persist across Tailscale restarts.
-
-**Using a shell script:**
-
-Create `~/bin/start-iuselinux.sh`:
-```bash
-#!/bin/bash
-# Start iuselinux server
-iuselinux &
-
-# Wait for server to start
-sleep 2
-
-# Expose via Tailscale
-tailscale serve 1960
-```
 
 ### Security Notes
 
