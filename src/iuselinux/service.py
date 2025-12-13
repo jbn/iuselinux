@@ -16,6 +16,10 @@ PLIST_FILENAME = f"{SERVICE_LABEL}.plist"
 DEFAULT_PORT = 1960
 DEFAULT_HOST = "127.0.0.1"
 
+# Tray service constants
+TRAY_SERVICE_LABEL = "com.iuselinux.tray"
+TRAY_PLIST_FILENAME = f"{TRAY_SERVICE_LABEL}.plist"
+
 
 def get_launch_agents_dir() -> Path:
     """Get the LaunchAgents directory path."""
@@ -154,8 +158,15 @@ def install(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     force: bool = False,
+    tray: bool = True,
 ) -> tuple[bool, str]:
     """Install the LaunchAgent.
+
+    Args:
+        host: Host to bind to
+        port: Port to bind to
+        force: Overwrite existing installation
+        tray: Also install the menu bar tray icon
 
     Returns:
         Tuple of (success, message)
@@ -190,14 +201,24 @@ def install(
     if result.returncode != 0:
         return False, f"Failed to load service: {result.stderr}"
 
-    return True, f"Service installed and started. Logs at ~/Library/Logs/iuselinux/"
+    messages = ["Service installed and started. Logs at ~/Library/Logs/iuselinux/"]
+
+    # Install tray if requested
+    if tray:
+        tray_success, tray_msg = install_tray(force=force)
+        if tray_success:
+            messages.append("Menu bar tray icon installed.")
+        else:
+            messages.append(f"Warning: Tray installation failed: {tray_msg}")
+
+    return True, " ".join(messages)
 
 
 def uninstall() -> tuple[bool, str]:
     """Uninstall the LaunchAgent.
 
-    Also disables Tailscale serve if it was enabled, to avoid leaving
-    a dangling port exposed, and clears the Tailscale config.
+    Also uninstalls the tray LaunchAgent if installed, disables Tailscale
+    serve if it was enabled, and clears the Tailscale config.
 
     Returns:
         Tuple of (success, message)
@@ -220,6 +241,16 @@ def uninstall() -> tuple[bool, str]:
     # Remove the plist file
     plist_path.unlink()
 
+    messages = ["Service uninstalled."]
+
+    # Uninstall tray if installed
+    if is_tray_installed():
+        tray_success, tray_msg = uninstall_tray()
+        if tray_success:
+            messages.append("Menu bar tray icon uninstalled.")
+        else:
+            messages.append(f"Warning: Tray uninstall failed: {tray_msg}")
+
     # Disable Tailscale serve to avoid leaving a dangling port
     # This is a best-effort cleanup - we don't fail uninstall if this fails
     if is_tailscale_available() and is_tailscale_serving():
@@ -228,7 +259,7 @@ def uninstall() -> tuple[bool, str]:
     # Clear Tailscale config so it doesn't auto-enable on reinstall
     update_config({"tailscale_serve_enabled": False})
 
-    return True, "Service uninstalled."
+    return True, " ".join(messages)
 
 
 def get_status() -> dict:
@@ -515,3 +546,191 @@ def check_startup_conflicts(
         return False, msg
 
     return True, None
+
+
+# Tray LaunchAgent management
+
+def get_tray_plist_path() -> Path:
+    """Get the full path to the tray plist file."""
+    return get_launch_agents_dir() / TRAY_PLIST_FILENAME
+
+
+def get_tray_log_paths() -> tuple[Path, Path]:
+    """Get paths for tray stdout and stderr logs."""
+    log_dir = Path.home() / "Library" / "Logs" / "iuselinux"
+    return log_dir / "tray.log", log_dir / "tray.err"
+
+
+def generate_tray_plist() -> dict[str, object]:
+    """Generate the tray app launchd plist dictionary."""
+    stdout_log, stderr_log = get_tray_log_paths()
+
+    # Ensure log directory exists
+    stdout_log.parent.mkdir(parents=True, exist_ok=True)
+
+    executable = find_iuselinux_executable()
+
+    if executable and executable.startswith("uvx:"):
+        # Use uvx to run iuselinux tray
+        uvx_path = shutil.which("uvx")
+        program_args = [
+            uvx_path or "/usr/local/bin/uvx",
+            "iuselinux",
+            "tray", "run",
+        ]
+    elif executable and executable.startswith("python:"):
+        # Use Python module execution
+        python_path = executable.split(":", 1)[1]
+        program_args = [
+            python_path,
+            "-m", "iuselinux",
+            "tray", "run",
+        ]
+    else:
+        # Direct executable
+        program_args = [
+            executable or "/usr/local/bin/iuselinux",
+            "tray", "run",
+        ]
+
+    return {
+        "Label": TRAY_SERVICE_LABEL,
+        "ProgramArguments": program_args,
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "StandardOutPath": str(stdout_log),
+        "StandardErrorPath": str(stderr_log),
+        "EnvironmentVariables": {
+            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+        },
+    }
+
+
+def is_tray_installed() -> bool:
+    """Check if the tray LaunchAgent plist is installed."""
+    return get_tray_plist_path().exists()
+
+
+def is_tray_loaded() -> bool:
+    """Check if the tray service is loaded in launchd."""
+    result = subprocess.run(
+        ["launchctl", "list", TRAY_SERVICE_LABEL],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def get_tray_pid() -> int | None:
+    """Get the PID of the running tray, if any."""
+    result = subprocess.run(
+        ["launchctl", "list", TRAY_SERVICE_LABEL],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+
+    # Parse the output - format is: PID\tStatus\tLabel
+    lines = result.stdout.strip().split("\n")
+    for line in lines:
+        parts = line.split("\t")
+        if len(parts) >= 1:
+            try:
+                return int(parts[0])
+            except ValueError:
+                return None
+    return None
+
+
+def install_tray(force: bool = False) -> tuple[bool, str]:
+    """Install the tray LaunchAgent.
+
+    Returns:
+        Tuple of (success, message)
+    """
+    plist_path = get_tray_plist_path()
+
+    if plist_path.exists() and not force:
+        return False, f"Tray already installed at {plist_path}. Use --force to overwrite."
+
+    # Ensure LaunchAgents directory exists
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Unload existing tray if loaded
+    if is_tray_loaded():
+        subprocess.run(
+            ["launchctl", "unload", str(plist_path)],
+            capture_output=True,
+        )
+
+    # Generate and write plist
+    plist_data = generate_tray_plist()
+    with open(plist_path, "wb") as f:
+        plistlib.dump(plist_data, f)
+
+    # Load the tray
+    result = subprocess.run(
+        ["launchctl", "load", str(plist_path)],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        return False, f"Failed to load tray: {result.stderr}"
+
+    return True, "Tray installed and started."
+
+
+def uninstall_tray() -> tuple[bool, str]:
+    """Uninstall the tray LaunchAgent.
+
+    Returns:
+        Tuple of (success, message)
+    """
+    plist_path = get_tray_plist_path()
+
+    if not plist_path.exists():
+        return False, "Tray is not installed."
+
+    # Unload the tray if loaded
+    if is_tray_loaded():
+        result = subprocess.run(
+            ["launchctl", "unload", str(plist_path)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return False, f"Failed to unload tray: {result.stderr}"
+
+    # Remove the plist file
+    plist_path.unlink()
+
+    return True, "Tray uninstalled."
+
+
+def get_tray_status() -> dict[str, object]:
+    """Get detailed tray status.
+
+    Returns:
+        Dictionary with status information
+    """
+    installed = is_tray_installed()
+    loaded = is_tray_loaded() if installed else False
+    pid = get_tray_pid() if loaded else None
+
+    status: dict[str, object] = {
+        "installed": installed,
+        "loaded": loaded,
+        "running": pid is not None,
+        "pid": pid,
+        "plist_path": str(get_tray_plist_path()) if installed else None,
+    }
+
+    # Get log file paths
+    if installed:
+        stdout_log, stderr_log = get_tray_log_paths()
+        status["stdout_log"] = str(stdout_log) if stdout_log.exists() else None
+        status["stderr_log"] = str(stderr_log) if stderr_log.exists() else None
+
+    return status

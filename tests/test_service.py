@@ -326,3 +326,110 @@ def test_check_startup_conflicts_no_conflict(mock_run, tmp_path, monkeypatch):
 
     assert can_start is True
     assert message is None
+
+
+# Tray LaunchAgent tests
+
+
+def test_get_tray_plist_path():
+    """Test tray plist path construction."""
+    result = service.get_tray_plist_path()
+    assert result.name == "com.iuselinux.tray.plist"
+    assert "LaunchAgents" in str(result)
+
+
+def test_get_tray_log_paths():
+    """Test tray log paths are in Library/Logs."""
+    stdout, stderr = service.get_tray_log_paths()
+    assert "Library/Logs/iuselinux" in str(stdout)
+    assert stdout.name == "tray.log"
+    assert stderr.name == "tray.err"
+
+
+def test_generate_tray_plist_structure():
+    """Test tray plist generation creates valid structure."""
+    plist = service.generate_tray_plist()
+
+    assert plist["Label"] == "com.iuselinux.tray"
+    assert plist["RunAtLoad"] is True
+    assert plist["KeepAlive"] is True
+    assert isinstance(plist["ProgramArguments"], list)
+    assert "tray" in plist["ProgramArguments"]
+    assert "run" in plist["ProgramArguments"]
+
+
+def test_is_tray_installed_false(tmp_path, monkeypatch):
+    """Test is_tray_installed returns False when plist doesn't exist."""
+    monkeypatch.setattr(service, "get_tray_plist_path", lambda: tmp_path / "nonexistent.plist")
+    assert service.is_tray_installed() is False
+
+
+def test_is_tray_installed_true(tmp_path, monkeypatch):
+    """Test is_tray_installed returns True when plist exists."""
+    plist_path = tmp_path / "test.plist"
+    plist_path.touch()
+    monkeypatch.setattr(service, "get_tray_plist_path", lambda: plist_path)
+    assert service.is_tray_installed() is True
+
+
+@patch("subprocess.run")
+def test_is_tray_loaded_true(mock_run):
+    """Test is_tray_loaded returns True when launchctl list succeeds."""
+    mock_run.return_value = MagicMock(returncode=0)
+    assert service.is_tray_loaded() is True
+
+
+@patch("subprocess.run")
+def test_is_tray_loaded_false(mock_run):
+    """Test is_tray_loaded returns False when launchctl list fails."""
+    mock_run.return_value = MagicMock(returncode=1)
+    assert service.is_tray_loaded() is False
+
+
+@patch("subprocess.run")
+def test_get_tray_pid_running(mock_run):
+    """Test get_tray_pid returns PID when tray is running."""
+    mock_run.return_value = MagicMock(returncode=0, stdout="54321\t0\tcom.iuselinux.tray")
+    assert service.get_tray_pid() == 54321
+
+
+@patch("subprocess.run")
+def test_get_tray_pid_not_running(mock_run):
+    """Test get_tray_pid returns None when tray is not running."""
+    mock_run.return_value = MagicMock(returncode=0, stdout="-\t0\tcom.iuselinux.tray")
+    assert service.get_tray_pid() is None
+
+
+def test_get_tray_status_not_installed(tmp_path, monkeypatch):
+    """Test get_tray_status when tray is not installed."""
+    monkeypatch.setattr(service, "get_tray_plist_path", lambda: tmp_path / "nonexistent.plist")
+
+    status = service.get_tray_status()
+
+    assert status["installed"] is False
+    assert status["loaded"] is False
+    assert status["running"] is False
+    assert status["pid"] is None
+
+
+def test_uninstall_tray_not_installed(tmp_path, monkeypatch):
+    """Test uninstall_tray fails when not installed."""
+    monkeypatch.setattr(service, "get_tray_plist_path", lambda: tmp_path / "nonexistent.plist")
+
+    success, message = service.uninstall_tray()
+
+    assert success is False
+    assert "not installed" in message
+
+
+@patch("subprocess.run")
+def test_install_tray_already_installed(mock_run, tmp_path, monkeypatch):
+    """Test install_tray fails when already installed without --force."""
+    plist_path = tmp_path / "test.plist"
+    plist_path.touch()
+    monkeypatch.setattr(service, "get_tray_plist_path", lambda: plist_path)
+
+    success, message = service.install_tray()
+
+    assert success is False
+    assert "already installed" in message.lower()

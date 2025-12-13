@@ -34,6 +34,8 @@ DEFAULTS: dict[str, Any] = {
     # Tailscale settings
     "tailscale_serve_enabled": False,  # Enable Tailscale serve when server starts
     "tailscale_serve_port": 1960,  # Port for Tailscale serve (should match server port)
+    # Tray settings
+    "tray_enabled": True,  # Enable menu bar tray icon (used during service install)
 }
 
 

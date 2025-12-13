@@ -1914,13 +1914,17 @@ def service() -> None:
 @click.option("--port", default=1960, help="Port to bind to")
 @click.option("--force", is_flag=True, help="Overwrite existing installation")
 @click.option("--tailscale", is_flag=True, help="Enable Tailscale serve for remote access")
-def service_install(host: str, port: int, force: bool, tailscale: bool) -> None:
+@click.option("--no-tray", is_flag=True, help="Skip installing the menu bar tray icon")
+def service_install(host: str, port: int, force: bool, tailscale: bool, no_tray: bool) -> None:
     """Install and start the LaunchAgent service.
 
     The service will automatically start on login and restart on failure.
     If --tailscale is provided, Tailscale serve will be enabled when the
     server starts and disabled when it stops. This ties the Tailscale
     lifecycle to the iuselinux service.
+
+    By default, a menu bar tray icon is also installed. Use --no-tray to
+    skip the tray icon installation.
     """
     # Configure Tailscale before installing (so the service picks up the config)
     if tailscale:
@@ -1945,7 +1949,9 @@ def service_install(host: str, port: int, force: bool, tailscale: bool) -> None:
         })
         click.echo("Tailscale serve configured (will start with service)")
 
-    success, message = service_module.install(host=host, port=port, force=force)
+    success, message = service_module.install(
+        host=host, port=port, force=force, tray=not no_tray
+    )
     if success:
         click.echo(click.style(message, fg="green"))
         click.echo(f"\nServer will be available at http://{host}:{port}")
@@ -1982,6 +1988,89 @@ def service_status(as_json: bool) -> None:
         click.echo(json.dumps(status, indent=2))
     else:
         click.echo(service_module.format_status(status))
+
+
+# Tray commands
+
+
+@main.group()
+def tray() -> None:
+    """Manage the iuselinux menu bar tray icon."""
+    pass
+
+
+@tray.command("run")
+def tray_run() -> None:
+    """Run the tray application directly (used by LaunchAgent)."""
+    from .tray import run_tray
+    run_tray()
+
+
+@tray.command("start")
+def tray_start() -> None:
+    """Start the menu bar tray icon."""
+    if not service_module.is_tray_installed():
+        click.echo(click.style("Tray is not installed.", fg="yellow"))
+        click.echo("Run 'iuselinux service install' to install both server and tray.")
+        sys.exit(1)
+
+    if service_module.is_tray_loaded():
+        click.echo("Tray is already running.")
+        return
+
+    tray_plist = service_module.get_tray_plist_path()
+    result = subprocess.run(
+        ["launchctl", "load", str(tray_plist)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        click.echo(click.style("Tray started.", fg="green"))
+    else:
+        click.echo(click.style(f"Failed to start tray: {result.stderr}", fg="red"), err=True)
+        sys.exit(1)
+
+
+@tray.command("stop")
+def tray_stop() -> None:
+    """Stop the menu bar tray icon."""
+    if not service_module.is_tray_loaded():
+        click.echo("Tray is not running.")
+        return
+
+    tray_plist = service_module.get_tray_plist_path()
+    result = subprocess.run(
+        ["launchctl", "unload", str(tray_plist)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        click.echo(click.style("Tray stopped.", fg="green"))
+    else:
+        click.echo(click.style(f"Failed to stop tray: {result.stderr}", fg="red"), err=True)
+        sys.exit(1)
+
+
+@tray.command("status")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def tray_status(as_json: bool) -> None:
+    """Show the status of the menu bar tray icon."""
+    status = service_module.get_tray_status()
+
+    if as_json:
+        import json
+        click.echo(json.dumps(status, indent=2))
+    else:
+        if not status["installed"]:
+            click.echo("Tray: not installed")
+            click.echo("  Run 'iuselinux service install' to install both server and tray.")
+        elif status["running"]:
+            click.echo(f"Tray: running (PID {status.get('pid', 'unknown')})")
+        elif status["loaded"]:
+            click.echo("Tray: loaded but not running")
+        else:
+            click.echo("Tray: installed but not loaded")
+            click.echo("  Run 'iuselinux tray start' to start the tray.")
 
 
 if __name__ == "__main__":
