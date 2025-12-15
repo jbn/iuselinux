@@ -316,7 +316,11 @@ def format_status(status: dict) -> str:
     # Tailscale status
     if status.get("tailscale_available"):
         if status.get("tailscale_serving"):
-            lines.append(f"  Tailscale: serving on port {status.get('tailscale_serve_port', 'unknown')}")
+            ts_url = status.get("tailscale_url")
+            if ts_url:
+                lines.append(f"  Tailscale: {ts_url}")
+            else:
+                lines.append(f"  Tailscale: serving on port {status.get('tailscale_serve_port', 'unknown')}")
         else:
             lines.append("  Tailscale: available but not serving")
     elif status.get("tailscale_available") is False:
@@ -382,8 +386,17 @@ def get_tailscale_serve_status() -> dict | None:
         return None
 
 
+# Global handle for the tailscale serve subprocess
+_tailscale_serve_proc: subprocess.Popen[bytes] | None = None
+
+
 def is_tailscale_serving(port: int = DEFAULT_PORT) -> bool:
     """Check if tailscale is currently serving on the given port."""
+    # First check if our managed subprocess is running
+    if _tailscale_serve_proc is not None and _tailscale_serve_proc.poll() is None:
+        return True
+
+    # Fall back to checking daemon config (for --bg mode or external config)
     status = get_tailscale_serve_status()
     if not status:
         return False
@@ -405,37 +418,50 @@ def is_tailscale_serving(port: int = DEFAULT_PORT) -> bool:
     return False
 
 
-def enable_tailscale_serve(port: int = DEFAULT_PORT, background: bool = False) -> tuple[bool, str]:
+def enable_tailscale_serve(port: int = DEFAULT_PORT) -> tuple[bool, str]:
     """Enable tailscale serve for the given port.
+
+    Starts tailscale serve as a foreground subprocess (no --bg). This ties
+    the serve lifecycle to the iuselinux process - when iuselinux dies,
+    the serve automatically stops because foreground mode is ephemeral.
 
     Args:
         port: The port to serve
-        background: If True, use --bg flag for persistent serve. This is NOT
-                   recommended as it decouples Tailscale lifecycle from iuselinux.
-                   Only use for manual CLI setup.
 
     Returns:
         Tuple of (success, message)
     """
+    global _tailscale_serve_proc
+
     if not is_tailscale_available():
         return False, "Tailscale CLI not found. Install Tailscale from https://tailscale.com/download"
 
     if not is_tailscale_connected():
         return False, "Tailscale is not connected. Run 'tailscale up' to connect."
 
-    cmd = ["tailscale", "serve"]
-    if background:
-        cmd.append("--bg")
-    cmd.append(str(port))
+    # Terminate existing subprocess if any
+    if _tailscale_serve_proc is not None and _tailscale_serve_proc.poll() is None:
+        _tailscale_serve_proc.terminate()
+        try:
+            _tailscale_serve_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _tailscale_serve_proc.kill()
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-    )
-
-    if result.returncode != 0:
-        return False, f"Failed to enable tailscale serve: {result.stderr}"
+    # Start foreground serve (no --bg = ephemeral, dies with process)
+    try:
+        _tailscale_serve_proc = subprocess.Popen(
+            ["tailscale", "serve", str(port)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        # Brief delay to check for immediate failure
+        import time
+        time.sleep(0.5)
+        if _tailscale_serve_proc.poll() is not None:
+            stderr = _tailscale_serve_proc.stderr.read().decode() if _tailscale_serve_proc.stderr else ""
+            return False, f"Failed to start tailscale serve: {stderr}"
+    except Exception as e:
+        return False, f"Failed to start tailscale serve: {e}"
 
     return True, f"Tailscale serve enabled for port {port}"
 
@@ -443,22 +469,63 @@ def enable_tailscale_serve(port: int = DEFAULT_PORT, background: bool = False) -
 def disable_tailscale_serve() -> tuple[bool, str]:
     """Disable tailscale serve.
 
+    Terminates the tailscale serve subprocess if we started one.
+
     Returns:
         Tuple of (success, message)
     """
+    global _tailscale_serve_proc
+
+    if _tailscale_serve_proc is not None:
+        if _tailscale_serve_proc.poll() is None:
+            _tailscale_serve_proc.terminate()
+            try:
+                _tailscale_serve_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                _tailscale_serve_proc.kill()
+        _tailscale_serve_proc = None
+        return True, "Tailscale serve disabled"
+
+    return True, "Tailscale serve disabled"
+
+
+def get_tailscale_dns_name() -> str | None:
+    """Get the Tailscale DNS name for this machine.
+
+    Returns:
+        DNS name like 'machine-name.tailnet-name.ts.net' or None if unavailable
+    """
     if not is_tailscale_available():
-        return False, "Tailscale CLI not found."
+        return None
 
     result = subprocess.run(
-        ["tailscale", "serve", "off"],
+        ["tailscale", "status", "--json"],
         capture_output=True,
         text=True,
     )
-
     if result.returncode != 0:
-        return False, f"Failed to disable tailscale serve: {result.stderr}"
+        return None
 
-    return True, "Tailscale serve disabled"
+    try:
+        import json
+        status = json.loads(result.stdout)
+        dns_name = status.get("Self", {}).get("DNSName", "")
+        # DNSName ends with a trailing dot, remove it
+        return dns_name.rstrip(".") if dns_name else None
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
+def get_tailscale_url() -> str | None:
+    """Get the HTTPS URL for Tailscale serve.
+
+    Returns:
+        URL like 'https://machine-name.tailnet-name.ts.net' or None
+    """
+    dns_name = get_tailscale_dns_name()
+    if dns_name:
+        return f"https://{dns_name}"
+    return None
 
 
 def get_tailscale_status() -> dict:
@@ -479,6 +546,12 @@ def get_tailscale_status() -> dict:
 
     if serving:
         status["tailscale_serve_port"] = DEFAULT_PORT
+
+    if connected:
+        dns_name = get_tailscale_dns_name()
+        if dns_name:
+            status["tailscale_dns_name"] = dns_name
+            status["tailscale_url"] = f"https://{dns_name}"
 
     return status
 

@@ -1611,7 +1611,7 @@ def enable_tailscale(
     This enables Tailscale serve immediately and saves the config so it
     will be re-enabled on service restart.
     """
-    success, message = service_api_module.enable_tailscale_serve(port=port, background=False)
+    success, message = service_api_module.enable_tailscale_serve(port=port)
     if success:
         # Save config so it persists across restarts
         update_config({
@@ -1875,7 +1875,7 @@ def serve(host: str, port: int, api_token: str | None) -> None:
         # Use the server port if config port doesn't match (user may have changed --port)
         if ts_port != port:
             ts_port = port
-        ts_success, ts_message = service_module.enable_tailscale_serve(port=ts_port, background=False)
+        ts_success, ts_message = service_module.enable_tailscale_serve(port=ts_port)
         if ts_success:
             print(f"Tailscale serve enabled on port {ts_port}")
             tailscale_started = True
@@ -1960,7 +1960,11 @@ def service_install(host: str, port: int, force: bool, tailscale: bool, no_tray:
             click.echo("\nTailscale serve is managed by the iuselinux service:")
             click.echo("  - Enabled when service starts")
             click.echo("  - Disabled when service stops")
-            click.echo("  - Access via https://your-machine.tailnet-name.ts.net")
+            ts_url = service_module.get_tailscale_url()
+            if ts_url:
+                click.echo(f"  - Access via {ts_url}")
+            else:
+                click.echo("  - Access via https://your-machine.tailnet-name.ts.net")
     else:
         click.echo(click.style(f"Error: {message}", fg="red"), err=True)
         sys.exit(1)

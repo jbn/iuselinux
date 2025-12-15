@@ -213,21 +213,24 @@ def test_is_tailscale_connected_not_available(mock_which):
     assert service.is_tailscale_connected() is False
 
 
+@patch("subprocess.Popen")
 @patch("subprocess.run")
 @patch("shutil.which")
-def test_enable_tailscale_serve_success(mock_which, mock_run):
+def test_enable_tailscale_serve_success(mock_which, mock_run, mock_popen):
     """Test enabling tailscale serve successfully."""
     mock_which.return_value = "/usr/local/bin/tailscale"
-    # First call for is_tailscale_connected, second for tailscale serve
-    mock_run.side_effect = [
-        MagicMock(returncode=0, stdout='{"BackendState": "Running"}'),
-        MagicMock(returncode=0, stdout="", stderr=""),
-    ]
+    # subprocess.run is called for is_tailscale_connected
+    mock_run.return_value = MagicMock(returncode=0, stdout='{"BackendState": "Running"}')
+    # subprocess.Popen is called to start tailscale serve
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None  # Process is still running
+    mock_popen.return_value = mock_proc
 
     success, message = service.enable_tailscale_serve(port=1960)
 
     assert success is True
     assert "1960" in message
+    mock_popen.assert_called_once()
 
 
 @patch("shutil.which")
