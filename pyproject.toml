@@ -1,6 +1,6 @@
 [project]
 name = "iuselinux"
-version = "0.1.1"
+version = "0.1.2"
 description = "Remote iMessage gateway for macOS"
 readme = "README.md"
 license = { text = "MIT" }
