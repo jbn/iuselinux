@@ -7,15 +7,15 @@ A web interface for reading and sending iMessages on macOS.
 Run directly with uvx (no installation required):
 
 ```bash
-uvx iuselinux
+uvx iuselinux@latest
 ```
 
 Then open http://127.0.0.1:1960 in your browser.
 
 Options:
 ```bash
-uvx iuselinux --host 0.0.0.0 --port 8000
-uvx iuselinux --api-token SECRET
+uvx iuselinux@latest --host 0.0.0.0 --port 8000
+uvx iuselinux@latest --api-token SECRET
 ```
 
 ## Installation
@@ -49,7 +49,7 @@ Install as a macOS LaunchAgent that starts on login and auto-restarts:
 
 ```bash
 # Basic install (localhost only)
-uvx iuselinux service install
+uv tool install iuselinux && uvx iuselinux service install
 
 # With custom port
 uvx iuselinux service install --port 8000
