@@ -1,8 +1,10 @@
 """macOS LaunchAgent service management for iuselinux."""
 
+import os
 import plistlib
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +22,11 @@ DEFAULT_HOST = "127.0.0.1"
 TRAY_SERVICE_LABEL = "com.iuselinux.tray"
 TRAY_PLIST_FILENAME = f"{TRAY_SERVICE_LABEL}.plist"
 
+# App bundle constants (for Full Disk Access)
+APP_BUNDLE_NAME = "iUseLinux.app"
+APP_BUNDLE_IDENTIFIER = "com.iuselinux.launcher"
+APP_BUNDLE_EXECUTABLE = "iuselinux-launcher"
+
 
 def get_launch_agents_dir() -> Path:
     """Get the LaunchAgents directory path."""
@@ -35,6 +42,88 @@ def get_log_paths() -> tuple[Path, Path]:
     """Get paths for stdout and stderr logs."""
     log_dir = Path.home() / "Library" / "Logs" / "iuselinux"
     return log_dir / "iuselinux.log", log_dir / "iuselinux.err"
+
+
+def get_app_support_dir() -> Path:
+    """Get the Application Support directory for iuselinux."""
+    return Path.home() / "Library" / "Application Support" / "iuselinux"
+
+
+def get_app_bundle_path() -> Path:
+    """Get the path to the app bundle used for Full Disk Access."""
+    return get_app_support_dir() / APP_BUNDLE_NAME
+
+
+def create_app_bundle() -> Path:
+    """Create minimal app bundle for Full Disk Access permissions.
+
+    When running as a LaunchAgent service, users need to grant Full Disk Access
+    to an app bundle rather than a terminal. This creates a minimal .app that
+    wraps the iuselinux launcher script.
+
+    Returns:
+        Path to the created .app bundle
+    """
+    app_path = get_app_bundle_path()
+    contents_path = app_path / "Contents"
+    macos_path = contents_path / "MacOS"
+
+    # Create directory structure
+    macos_path.mkdir(parents=True, exist_ok=True)
+
+    # Create Info.plist
+    info_plist = {
+        "CFBundleExecutable": APP_BUNDLE_EXECUTABLE,
+        "CFBundleIdentifier": APP_BUNDLE_IDENTIFIER,
+        "CFBundleName": "iUseLinux",
+        "CFBundlePackageType": "APPL",
+        "CFBundleVersion": "1.0",
+        "CFBundleShortVersionString": "1.0",
+    }
+
+    plist_path = contents_path / "Info.plist"
+    with open(plist_path, "wb") as f:
+        plistlib.dump(info_plist, f)
+
+    # Create the launcher shell script
+    # This script detects the best way to run iuselinux at runtime
+    launcher_script = """\
+#!/bin/bash
+# iUseLinux service launcher - add this app to Full Disk Access
+# Location: ~/Library/Application Support/iuselinux/iUseLinux.app
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+if command -v uvx &> /dev/null; then
+    exec uvx iuselinux "$@"
+elif command -v iuselinux &> /dev/null; then
+    exec iuselinux "$@"
+else
+    exec python3 -m iuselinux "$@"
+fi
+"""
+
+    exec_path = macos_path / APP_BUNDLE_EXECUTABLE
+    with open(exec_path, "w") as f:
+        f.write(launcher_script)
+
+    # Make executable (755 permissions)
+    st = os.stat(exec_path)
+    os.chmod(exec_path, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    return app_path
+
+
+def remove_app_bundle() -> None:
+    """Remove the app bundle if it exists."""
+    app_path = get_app_bundle_path()
+    if app_path.exists():
+        shutil.rmtree(app_path)
+
+
+def get_launcher_executable() -> str:
+    """Get the path to the launcher executable inside the app bundle."""
+    return str(get_app_bundle_path() / "Contents" / "MacOS" / APP_BUNDLE_EXECUTABLE)
 
 
 def find_iuselinux_executable() -> str | None:
@@ -68,39 +157,23 @@ def generate_plist(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
 ) -> dict:
-    """Generate the launchd plist dictionary."""
+    """Generate the launchd plist dictionary.
+
+    Uses the app bundle launcher script, which allows users to grant
+    Full Disk Access to the iUseLinux.app rather than needing to find
+    the underlying python3 or uvx binary.
+    """
     stdout_log, stderr_log = get_log_paths()
 
     # Ensure log directory exists
     stdout_log.parent.mkdir(parents=True, exist_ok=True)
 
-    executable = find_iuselinux_executable()
-
-    if executable and executable.startswith("uvx:"):
-        # Use uvx to run iuselinux
-        uvx_path = shutil.which("uvx")
-        program_args = [
-            uvx_path or "/usr/local/bin/uvx",
-            "iuselinux",
-            "--host", host,
-            "--port", str(port),
-        ]
-    elif executable and executable.startswith("python:"):
-        # Use Python module execution
-        python_path = executable.split(":", 1)[1]
-        program_args = [
-            python_path,
-            "-m", "iuselinux",
-            "--host", host,
-            "--port", str(port),
-        ]
-    else:
-        # Direct executable
-        program_args = [
-            executable or "/usr/local/bin/iuselinux",
-            "--host", host,
-            "--port", str(port),
-        ]
+    # Use the app bundle launcher - this allows users to grant FDA to the .app
+    program_args = [
+        get_launcher_executable(),
+        "--host", host,
+        "--port", str(port),
+    ]
 
     return {
         "Label": SERVICE_LABEL,
@@ -176,6 +249,10 @@ def install(
     if plist_path.exists() and not force:
         return False, f"Service already installed at {plist_path}. Use --force to overwrite."
 
+    # Create the app bundle for Full Disk Access
+    # This must be done before generating the plist since plist references it
+    app_bundle_path = create_app_bundle()
+
     # Ensure LaunchAgents directory exists
     plist_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -201,7 +278,11 @@ def install(
     if result.returncode != 0:
         return False, f"Failed to load service: {result.stderr}"
 
-    messages = ["Service installed and started. Logs at ~/Library/Logs/iuselinux/"]
+    messages = [
+        "Service installed and started.",
+        f"For Full Disk Access, add: {app_bundle_path}",
+        "Logs at ~/Library/Logs/iuselinux/",
+    ]
 
     # Install tray if requested
     if tray:
@@ -218,7 +299,8 @@ def uninstall() -> tuple[bool, str]:
     """Uninstall the LaunchAgent.
 
     Also uninstalls the tray LaunchAgent if installed, disables Tailscale
-    serve if it was enabled, and clears the Tailscale config.
+    serve if it was enabled, clears the Tailscale config, and removes
+    the app bundle.
 
     Returns:
         Tuple of (success, message)
@@ -242,6 +324,9 @@ def uninstall() -> tuple[bool, str]:
     plist_path.unlink()
 
     messages = ["Service uninstalled."]
+
+    # Remove the app bundle used for Full Disk Access
+    remove_app_bundle()
 
     # Uninstall tray if installed
     if is_tray_installed():
