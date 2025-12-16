@@ -127,6 +127,11 @@ def extract_text_from_attributed_body(data: bytes) -> str | None:
     NSAttributedString. The text field may be NULL when the message contains
     special formatting, mentions, or was edited.
 
+    The typedstream format uses variable-length integer encoding:
+    - Values 0-127: single byte literal
+    - 0x81 (-127 signed): 2-byte little-endian length follows
+    - 0x82 (-126 signed): 4-byte little-endian length follows
+
     Args:
         data: Raw attributedBody blob from message table
 
@@ -147,12 +152,34 @@ def extract_text_from_attributed_body(data: bytes) -> str | None:
 
     while pos < len(data) - 2:
         b = data[pos]
-        # + (0x2B) or * (0x2A) markers precede the length byte
-        if b in (0x2B, 0x2A) and pos + 2 < len(data):
-            length = data[pos + 1]
-            if 0 < length < 250 and pos + 2 + length <= len(data):
+        # + (0x2B) or * (0x2A) markers precede the length encoding
+        if b in (0x2B, 0x2A):
+            length_byte = data[pos + 1]
+
+            # Typedstream variable-length integer encoding (little-endian on macOS)
+            if length_byte == 0x81:  # 2-byte little-endian length
+                if pos + 4 > len(data):
+                    pos += 1
+                    continue
+                length = int.from_bytes(data[pos + 2 : pos + 4], "little")
+                text_start = pos + 4
+            elif length_byte == 0x82:  # 4-byte little-endian length
+                if pos + 6 > len(data):
+                    pos += 1
+                    continue
+                length = int.from_bytes(data[pos + 2 : pos + 6], "little")
+                text_start = pos + 6
+            elif length_byte < 0x80:  # Single-byte length (0-127)
+                length = length_byte
+                text_start = pos + 2
+            else:
+                # Other tag values, skip
+                pos += 1
+                continue
+
+            if 0 < length <= 65535 and text_start + length <= len(data):
                 try:
-                    text = data[pos + 2 : pos + 2 + length].decode("utf-8")
+                    text = data[text_start : text_start + length].decode("utf-8")
                     if text:
                         return text
                 except UnicodeDecodeError:
