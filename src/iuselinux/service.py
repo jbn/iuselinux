@@ -27,6 +27,11 @@ APP_BUNDLE_NAME = "iUseLinux.app"
 APP_BUNDLE_IDENTIFIER = "com.iuselinux.launcher"
 APP_BUNDLE_EXECUTABLE = "iuselinux-launcher"
 
+# Tray app bundle constants (for Spotlight/Launchpad visibility)
+TRAY_APP_BUNDLE_NAME = "iUseLinux Menu.app"
+TRAY_APP_BUNDLE_IDENTIFIER = "com.iuselinux.tray"
+TRAY_APP_BUNDLE_EXECUTABLE = "iuselinux-tray"
+
 
 def get_launch_agents_dir() -> Path:
     """Get the LaunchAgents directory path."""
@@ -124,6 +129,91 @@ def remove_app_bundle() -> None:
 def get_launcher_executable() -> str:
     """Get the path to the launcher executable inside the app bundle."""
     return str(get_app_bundle_path() / "Contents" / "MacOS" / APP_BUNDLE_EXECUTABLE)
+
+
+def get_user_applications_dir() -> Path:
+    """Get the user's Applications directory."""
+    return Path.home() / "Applications"
+
+
+def get_tray_app_bundle_path() -> Path:
+    """Get the path to the tray app bundle in ~/Applications."""
+    return get_user_applications_dir() / TRAY_APP_BUNDLE_NAME
+
+
+def create_tray_app_bundle() -> Path:
+    """Create tray app bundle in ~/Applications for Spotlight/Launchpad visibility.
+
+    This creates a proper .app that users can find in Spotlight, add to Dock,
+    and launch manually if the tray was quit.
+
+    Returns:
+        Path to the created .app bundle
+    """
+    app_path = get_tray_app_bundle_path()
+    contents_path = app_path / "Contents"
+    macos_path = contents_path / "MacOS"
+
+    # Ensure ~/Applications exists
+    get_user_applications_dir().mkdir(parents=True, exist_ok=True)
+
+    # Create directory structure
+    macos_path.mkdir(parents=True, exist_ok=True)
+
+    # Create Info.plist
+    info_plist = {
+        "CFBundleExecutable": TRAY_APP_BUNDLE_EXECUTABLE,
+        "CFBundleIdentifier": TRAY_APP_BUNDLE_IDENTIFIER,
+        "CFBundleName": "iUseLinux Menu",
+        "CFBundleDisplayName": "iUseLinux Menu",
+        "CFBundlePackageType": "APPL",
+        "CFBundleVersion": "1.0",
+        "CFBundleShortVersionString": "1.0",
+        "LSUIElement": True,  # Makes it a menu bar app (no Dock icon when running)
+    }
+
+    plist_path = contents_path / "Info.plist"
+    with open(plist_path, "wb") as f:
+        plistlib.dump(info_plist, f)
+
+    # Create the launcher shell script
+    launcher_script = """\
+#!/bin/bash
+# iUseLinux Menu - menu bar tray icon
+# Launch this app to show the iUseLinux menu bar icon
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+if command -v uvx &> /dev/null; then
+    exec uvx iuselinux tray run
+elif command -v iuselinux &> /dev/null; then
+    exec iuselinux tray run
+else
+    exec python3 -m iuselinux tray run
+fi
+"""
+
+    exec_path = macos_path / TRAY_APP_BUNDLE_EXECUTABLE
+    with open(exec_path, "w") as f:
+        f.write(launcher_script)
+
+    # Make executable (755 permissions)
+    st = os.stat(exec_path)
+    os.chmod(exec_path, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    return app_path
+
+
+def remove_tray_app_bundle() -> None:
+    """Remove the tray app bundle if it exists."""
+    app_path = get_tray_app_bundle_path()
+    if app_path.exists():
+        shutil.rmtree(app_path)
+
+
+def get_tray_launcher_executable() -> str:
+    """Get the path to the tray launcher executable inside the app bundle."""
+    return str(get_tray_app_bundle_path() / "Contents" / "MacOS" / TRAY_APP_BUNDLE_EXECUTABLE)
 
 
 def find_iuselinux_executable() -> str | None:
@@ -720,42 +810,27 @@ def get_tray_log_paths() -> tuple[Path, Path]:
 
 
 def generate_tray_plist() -> dict[str, object]:
-    """Generate the tray app launchd plist dictionary."""
+    """Generate the tray app launchd plist dictionary.
+
+    Uses the tray app bundle from ~/Applications, which users can also
+    launch manually from Spotlight/Launchpad if they quit the tray.
+
+    Note: KeepAlive is NOT set, so the tray won't auto-restart if quit.
+    This is intentional - when users click Quit, they expect it to quit.
+    """
     stdout_log, stderr_log = get_tray_log_paths()
 
     # Ensure log directory exists
     stdout_log.parent.mkdir(parents=True, exist_ok=True)
 
-    executable = find_iuselinux_executable()
-
-    if executable and executable.startswith("uvx:"):
-        # Use uvx to run iuselinux tray
-        uvx_path = shutil.which("uvx")
-        program_args = [
-            uvx_path or "/usr/local/bin/uvx",
-            "iuselinux",
-            "tray", "run",
-        ]
-    elif executable and executable.startswith("python:"):
-        # Use Python module execution
-        python_path = executable.split(":", 1)[1]
-        program_args = [
-            python_path,
-            "-m", "iuselinux",
-            "tray", "run",
-        ]
-    else:
-        # Direct executable
-        program_args = [
-            executable or "/usr/local/bin/iuselinux",
-            "tray", "run",
-        ]
+    # Use the tray app bundle - allows users to find/launch via Spotlight
+    program_args = [get_tray_launcher_executable()]
 
     return {
         "Label": TRAY_SERVICE_LABEL,
         "ProgramArguments": program_args,
         "RunAtLoad": True,
-        "KeepAlive": True,
+        # No KeepAlive - tray should stay quit when user quits it
         "StandardOutPath": str(stdout_log),
         "StandardErrorPath": str(stderr_log),
         "EnvironmentVariables": {
@@ -804,6 +879,9 @@ def get_tray_pid() -> int | None:
 def install_tray(force: bool = False) -> tuple[bool, str]:
     """Install the tray LaunchAgent.
 
+    Creates an app bundle in ~/Applications that users can find in Spotlight,
+    and a LaunchAgent that starts the tray on login.
+
     Returns:
         Tuple of (success, message)
     """
@@ -811,6 +889,10 @@ def install_tray(force: bool = False) -> tuple[bool, str]:
 
     if plist_path.exists() and not force:
         return False, f"Tray already installed at {plist_path}. Use --force to overwrite."
+
+    # Create the tray app bundle in ~/Applications
+    # This must be done before generating the plist since plist references it
+    tray_app_path = create_tray_app_bundle()
 
     # Ensure LaunchAgents directory exists
     plist_path.parent.mkdir(parents=True, exist_ok=True)
@@ -837,11 +919,11 @@ def install_tray(force: bool = False) -> tuple[bool, str]:
     if result.returncode != 0:
         return False, f"Failed to load tray: {result.stderr}"
 
-    return True, "Tray installed and started."
+    return True, f"Tray installed at {tray_app_path} and started."
 
 
 def uninstall_tray() -> tuple[bool, str]:
-    """Uninstall the tray LaunchAgent.
+    """Uninstall the tray LaunchAgent and app bundle.
 
     Returns:
         Tuple of (success, message)
@@ -863,6 +945,9 @@ def uninstall_tray() -> tuple[bool, str]:
 
     # Remove the plist file
     plist_path.unlink()
+
+    # Remove the tray app bundle from ~/Applications
+    remove_tray_app_bundle()
 
     return True, "Tray uninstalled."
 

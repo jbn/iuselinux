@@ -355,10 +355,11 @@ def test_generate_tray_plist_structure():
 
     assert plist["Label"] == "com.iuselinux.tray"
     assert plist["RunAtLoad"] is True
-    assert plist["KeepAlive"] is True
+    # KeepAlive is intentionally NOT set - tray should stay quit when user quits it
+    assert "KeepAlive" not in plist
     assert isinstance(plist["ProgramArguments"], list)
-    assert "tray" in plist["ProgramArguments"]
-    assert "run" in plist["ProgramArguments"]
+    # Now uses app bundle launcher instead of direct tray run command
+    assert len(plist["ProgramArguments"]) >= 1
 
 
 def test_is_tray_installed_false(tmp_path, monkeypatch):
