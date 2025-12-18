@@ -97,7 +97,8 @@ def create_app_bundle() -> Path:
 # iUseLinux service launcher - add this app to Full Disk Access
 # Location: ~/Library/Application Support/iuselinux/iUseLinux.app
 
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# Include common paths where uv/uvx/pyenv might be installed
+export PATH="$HOME/.local/bin:$HOME/.pyenv/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 if command -v uvx &> /dev/null; then
     exec uvx iuselinux "$@"
@@ -182,7 +183,8 @@ def create_tray_app_bundle() -> Path:
 # iUseLinux Menu - menu bar tray icon
 # Launch this app to show the iUseLinux menu bar icon
 
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# Include common paths where uv/uvx/pyenv might be installed
+export PATH="$HOME/.local/bin:$HOME/.pyenv/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 if command -v uvx &> /dev/null; then
     exec uvx iuselinux tray run
