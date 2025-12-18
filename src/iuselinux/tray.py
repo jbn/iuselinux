@@ -3,6 +3,7 @@
 import logging
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 import rumps
@@ -20,6 +21,9 @@ from .service import (
 
 logger = logging.getLogger("iuselinux.tray")
 
+# Path to icon template (relative to this file's directory)
+ICON_PATH = Path(__file__).parent / "static" / "iconTemplate.png"
+
 # Embedded server process (when running without LaunchAgent)
 _embedded_server_proc: subprocess.Popen[bytes] | None = None
 
@@ -28,9 +32,13 @@ class IUseLinuxTrayApp(rumps.App):  # type: ignore[misc]
     """Menu bar tray application for iUseLinux."""
 
     def __init__(self) -> None:
+        # Use icon if available, fall back to text
+        icon = str(ICON_PATH) if ICON_PATH.exists() else None
         super().__init__(
             name="iUseLinux",
-            title="iUseLinux",
+            title=None if icon else "iUseLinux",
+            icon=icon,
+            template=True,  # Tells macOS to treat as template image (auto light/dark)
             quit_button=None,  # Custom quit handling
         )
         self._setup_menu()
