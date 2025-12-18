@@ -484,3 +484,33 @@ brew install ffmpeg
 ```
 
 Without ffmpeg, videos will still display but thumbnails and streaming won't be available. The `/health` endpoint shows whether ffmpeg is detected.
+
+## Manual Removal
+
+To completely remove iUseLinux from your system:
+
+1. **Uninstall the service** (if installed):
+   ```bash
+   uvx iuselinux service uninstall
+   ```
+
+2. **Remove application data and logs**:
+   ```bash
+   rm -rf ~/Library/Application\ Support/iuselinux/
+   rm -rf ~/Library/Logs/iuselinux/
+   ```
+
+3. **Remove the app bundle** (if present):
+   ```bash
+   rm -rf ~/Applications/iUseLinux.app/
+   ```
+
+4. **Remove the uv tool installation** (if installed via `uv tool install`):
+   ```bash
+   uv tool uninstall iuselinux
+   ```
+
+5. **Revoke permissions** (optional):
+   - Open **System Settings** → **Privacy & Security** → **Full Disk Access**
+   - Remove any iUseLinux-related entries (Terminal, iUseLinux Service.app, etc.)
+   - Similarly check **Automation** and remove Terminal → Messages if desired
