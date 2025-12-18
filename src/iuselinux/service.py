@@ -298,6 +298,8 @@ def generate_plist(
         "EnvironmentVariables": {
             # Ensure we have a proper PATH for finding ffmpeg, tailscale, etc.
             "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+            # Mark that we're running as the launchd service (for conflict detection)
+            "IUSELINUX_LAUNCHD_SERVICE": "1",
         },
     }
 
@@ -319,24 +321,25 @@ def is_loaded() -> bool:
 
 def get_pid() -> int | None:
     """Get the PID of the running service, if any."""
+    # Use launchctl list (no argument) which outputs tabular format:
+    # PID\tStatus\tLabel  (or "-" for PID if not running)
     result = subprocess.run(
-        ["launchctl", "list", SERVICE_LABEL],
+        ["launchctl", "list"],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         return None
 
-    # Parse the output - format is: PID\tStatus\tLabel
-    # Or: -\tStatus\tLabel if not running
-    lines = result.stdout.strip().split("\n")
-    for line in lines:
-        parts = line.split("\t")
-        if len(parts) >= 1:
-            try:
-                return int(parts[0])
-            except ValueError:
-                return None
+    # Find our service in the output
+    for line in result.stdout.strip().split("\n"):
+        if SERVICE_LABEL in line:
+            parts = line.split("\t")
+            if len(parts) >= 1:
+                try:
+                    return int(parts[0])
+                except ValueError:
+                    return None  # "-" means not running
     return None
 
 
@@ -774,6 +777,14 @@ def is_port_in_use(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> bool:
             return True
 
 
+def is_running_as_launchd_service() -> bool:
+    """Check if we are running as the launchd service.
+
+    The launchd plist sets IUSELINUX_LAUNCHD_SERVICE=1 to mark service processes.
+    """
+    return os.environ.get("IUSELINUX_LAUNCHD_SERVICE") == "1"
+
+
 def check_startup_conflicts(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
@@ -787,12 +798,15 @@ def check_startup_conflicts(
     Returns:
         Tuple of (can_start, message). If can_start is False, message explains why.
     """
+    # Skip conflict check if we ARE the launchd service
+    if is_running_as_launchd_service():
+        return True, None
+
     # Check if the LaunchAgent service is running
-    if is_loaded() and get_pid() is not None:
-        status = get_status()
-        pid = status.get("pid")
+    service_pid = get_pid()
+    if is_loaded() and service_pid is not None:
         msg = (
-            f"iuselinux service is already running (PID {pid}).\n"
+            f"iuselinux service is already running (PID {service_pid}).\n"
             f"\n"
             f"The server is available at http://{host}:{port}\n"
             f"\n"
@@ -879,23 +893,25 @@ def is_tray_loaded() -> bool:
 
 def get_tray_pid() -> int | None:
     """Get the PID of the running tray, if any."""
+    # Use launchctl list (no argument) which outputs tabular format:
+    # PID\tStatus\tLabel  (or "-" for PID if not running)
     result = subprocess.run(
-        ["launchctl", "list", TRAY_SERVICE_LABEL],
+        ["launchctl", "list"],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         return None
 
-    # Parse the output - format is: PID\tStatus\tLabel
-    lines = result.stdout.strip().split("\n")
-    for line in lines:
-        parts = line.split("\t")
-        if len(parts) >= 1:
-            try:
-                return int(parts[0])
-            except ValueError:
-                return None
+    # Find our service in the output
+    for line in result.stdout.strip().split("\n"):
+        if TRAY_SERVICE_LABEL in line:
+            parts = line.split("\t")
+            if len(parts) >= 1:
+                try:
+                    return int(parts[0])
+                except ValueError:
+                    return None  # "-" means not running
     return None
 
 

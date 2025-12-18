@@ -1,6 +1,7 @@
 """macOS menu bar tray application for iuselinux."""
 
 import logging
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -78,18 +79,21 @@ class IUseLinuxTrayApp(rumps.App):  # type: ignore[misc]
             pid = get_pid()
             self.status_item.title = f"Service: Running (PID {pid})"
             self.toggle_item.title = "Stop Service"
+            self.toggle_item.set_callback(self.toggle_service)
             self.run_now_item.title = "Run Server Now (service active)"
             self.run_now_item.set_callback(None)  # Disable
         elif embedded_running and _embedded_server_proc is not None:
             self.status_item.title = (
                 f"Server: Running (embedded, PID {_embedded_server_proc.pid})"
             )
-            self.toggle_item.title = "Start Service"
+            self.toggle_item.title = "Start Service (embedded active)"
+            self.toggle_item.set_callback(None)  # Disable - can't start service while embedded running
             self.run_now_item.title = "Stop Embedded Server"
             self.run_now_item.set_callback(self.stop_embedded_server)
         else:
             self.status_item.title = "Service: Stopped"
             self.toggle_item.title = "Start Service"
+            self.toggle_item.set_callback(self.toggle_service)
             self.run_now_item.title = "Run Server Now"
             self.run_now_item.set_callback(self.run_server_now)
 
@@ -128,8 +132,24 @@ class IUseLinuxTrayApp(rumps.App):  # type: ignore[misc]
         host = DEFAULT_HOST
         port = int(get_config_value("tailscale_serve_port") or DEFAULT_PORT)
 
+        # Find the iuselinux executable - prefer the one in PATH, fallback to uvx
+        iuselinux_path = shutil.which("iuselinux")
+        if iuselinux_path:
+            cmd = [iuselinux_path, "--host", host, "--port", str(port)]
+        else:
+            # Fall back to uvx if iuselinux not in PATH
+            uvx_path = shutil.which("uvx")
+            if uvx_path:
+                cmd = [uvx_path, "iuselinux", "--host", host, "--port", str(port)]
+            else:
+                rumps.alert(
+                    "Cannot Start Server",
+                    "Could not find iuselinux or uvx in PATH.",
+                )
+                return
+
         _embedded_server_proc = subprocess.Popen(
-            [sys.executable, "-m", "iuselinux", "--host", host, "--port", str(port)],
+            cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
