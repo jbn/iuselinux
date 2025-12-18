@@ -82,7 +82,7 @@ When running as a service, you need to grant Full Disk Access to the iUseLinux l
 1. Open **System Settings** > **Privacy & Security** > **Full Disk Access**
 2. Click the **+** button
 3. Press **Cmd+Shift+G** and enter: `~/Library/Application Support/iuselinux/`
-4. Select **iUseLinux.app** and click **Open**
+4. Select **iUseLinux Service.app** and click **Open**
 5. Restart the service: `uvx iuselinux@latest service uninstall && uvx iuselinux@latest service install`
 
 The service install creates this app bundle automatically. It's a lightweight wrapper that allows macOS to grant Full Disk Access to the background service.

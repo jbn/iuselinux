@@ -23,12 +23,12 @@ TRAY_SERVICE_LABEL = "com.iuselinux.tray"
 TRAY_PLIST_FILENAME = f"{TRAY_SERVICE_LABEL}.plist"
 
 # App bundle constants (for Full Disk Access)
-APP_BUNDLE_NAME = "iUseLinux.app"
+APP_BUNDLE_NAME = "iUseLinux Service.app"
 APP_BUNDLE_IDENTIFIER = "com.iuselinux.launcher"
 APP_BUNDLE_EXECUTABLE = "iuselinux-launcher"
 
 # Tray app bundle constants (for Spotlight/Launchpad visibility)
-TRAY_APP_BUNDLE_NAME = "iUseLinux Menu.app"
+TRAY_APP_BUNDLE_NAME = "iUseLinux.app"
 TRAY_APP_BUNDLE_IDENTIFIER = "com.iuselinux.tray"
 TRAY_APP_BUNDLE_EXECUTABLE = "iuselinux-tray"
 
@@ -92,7 +92,7 @@ def create_app_bundle() -> Path:
     info_plist = {
         "CFBundleExecutable": APP_BUNDLE_EXECUTABLE,
         "CFBundleIdentifier": APP_BUNDLE_IDENTIFIER,
-        "CFBundleName": "iUseLinux",
+        "CFBundleName": "iUseLinux Service",
         "CFBundlePackageType": "APPL",
         "CFBundleVersion": "1.0",
         "CFBundleShortVersionString": "1.0",
@@ -108,7 +108,7 @@ def create_app_bundle() -> Path:
     launcher_script = """\
 #!/bin/bash
 # iUseLinux service launcher - add this app to Full Disk Access
-# Location: ~/Library/Application Support/iuselinux/iUseLinux.app
+# Location: ~/Library/Application Support/iuselinux/iUseLinux Service.app
 
 # Include common paths where uv/uvx/pyenv might be installed
 export PATH="$HOME/.local/bin:$HOME/.pyenv/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"
@@ -185,8 +185,8 @@ def create_tray_app_bundle() -> Path:
     info_plist = {
         "CFBundleExecutable": TRAY_APP_BUNDLE_EXECUTABLE,
         "CFBundleIdentifier": TRAY_APP_BUNDLE_IDENTIFIER,
-        "CFBundleName": "iUseLinux Menu",
-        "CFBundleDisplayName": "iUseLinux Menu",
+        "CFBundleName": "iUseLinux",
+        "CFBundleDisplayName": "iUseLinux",
         "CFBundlePackageType": "APPL",
         "CFBundleVersion": "1.0",
         "CFBundleShortVersionString": "1.0",
@@ -201,7 +201,7 @@ def create_tray_app_bundle() -> Path:
     # Create the launcher shell script
     launcher_script = """\
 #!/bin/bash
-# iUseLinux Menu - menu bar tray icon
+# iUseLinux - menu bar tray icon
 # Launch this app to show the iUseLinux menu bar icon
 
 # Include common paths where uv/uvx/pyenv might be installed
