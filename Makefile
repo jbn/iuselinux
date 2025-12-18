@@ -1,4 +1,4 @@
-.PHONY: test run ship clean build reset-install
+.PHONY: test run ship clean build remove-install reset-install
 
 test:
 	uv run pytest
@@ -15,7 +15,12 @@ ship: clean build
 clean:
 	rm -rf dist/
 
-reset-install:
+remove-install:
 	-uvx iuselinux service uninstall
 	rm -rf ~/Library/Application\ Support/iuselinux/
 	rm -rf ~/Library/Logs/iuselinux/
+	rm -rf ~/Applications/iUseLinux\ Menu.app/
+
+reset-install: remove-install
+	uv tool install -e .
+	uvx iuselinux service install

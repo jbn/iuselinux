@@ -59,6 +59,11 @@ def get_app_bundle_path() -> Path:
     return get_app_support_dir() / APP_BUNDLE_NAME
 
 
+def get_app_icon_path() -> Path:
+    """Get the path to the app icon file."""
+    return Path(__file__).parent / "static" / "AppIcon.icns"
+
+
 def create_app_bundle() -> Path:
     """Create minimal app bundle for Full Disk Access permissions.
 
@@ -72,9 +77,16 @@ def create_app_bundle() -> Path:
     app_path = get_app_bundle_path()
     contents_path = app_path / "Contents"
     macos_path = contents_path / "MacOS"
+    resources_path = contents_path / "Resources"
 
     # Create directory structure
     macos_path.mkdir(parents=True, exist_ok=True)
+    resources_path.mkdir(parents=True, exist_ok=True)
+
+    # Copy app icon if available
+    icon_src = get_app_icon_path()
+    if icon_src.exists():
+        shutil.copy2(icon_src, resources_path / "AppIcon.icns")
 
     # Create Info.plist
     info_plist = {
@@ -84,6 +96,7 @@ def create_app_bundle() -> Path:
         "CFBundlePackageType": "APPL",
         "CFBundleVersion": "1.0",
         "CFBundleShortVersionString": "1.0",
+        "CFBundleIconFile": "AppIcon",
     }
 
     plist_path = contents_path / "Info.plist"
@@ -154,12 +167,19 @@ def create_tray_app_bundle() -> Path:
     app_path = get_tray_app_bundle_path()
     contents_path = app_path / "Contents"
     macos_path = contents_path / "MacOS"
+    resources_path = contents_path / "Resources"
 
     # Ensure ~/Applications exists
     get_user_applications_dir().mkdir(parents=True, exist_ok=True)
 
     # Create directory structure
     macos_path.mkdir(parents=True, exist_ok=True)
+    resources_path.mkdir(parents=True, exist_ok=True)
+
+    # Copy app icon if available
+    icon_src = get_app_icon_path()
+    if icon_src.exists():
+        shutil.copy2(icon_src, resources_path / "AppIcon.icns")
 
     # Create Info.plist
     info_plist = {
@@ -170,6 +190,7 @@ def create_tray_app_bundle() -> Path:
         "CFBundlePackageType": "APPL",
         "CFBundleVersion": "1.0",
         "CFBundleShortVersionString": "1.0",
+        "CFBundleIconFile": "AppIcon",
         "LSUIElement": True,  # Makes it a menu bar app (no Dock icon when running)
     }
 
