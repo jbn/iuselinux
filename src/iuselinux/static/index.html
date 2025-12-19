@@ -80,6 +80,15 @@
                             <span>Prevent Sleep</span>
                         </label>
                         <p class="setting-description">Keep your Mac awake while the gateway is running</p>
+                        <div id="sleep-mode-container" class="setting-sub-option">
+                            <label class="setting-label" for="setting-sleep-mode">
+                                <span>Sleep Mode</span>
+                            </label>
+                            <select id="setting-sleep-mode" class="setting-select">
+                                <option value="ac_power">Only when on AC power (battery-friendly)</option>
+                                <option value="always">Always prevent sleep</option>
+                            </select>
+                        </div>
                         <div id="sleep-control" class="sleep-control hidden">
                             <button type="button" id="allow-sleep-btn" class="btn-secondary btn-small hidden">
                                 ↳ Allow to Sleep Now
@@ -202,6 +211,18 @@
                             <button type="button" id="tailscale-disable-btn" class="btn-secondary btn-small hidden">Disable Tailscale</button>
                         </div>
                         <p class="setting-hint" id="tailscale-hint"></p>
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="setting-group">
+                        <h3>Menu Bar Tray</h3>
+                        <p class="setting-description">The menu bar tray icon provides quick access to start/stop the service.</p>
+                        <div class="tray-status" id="tray-status">
+                            <span class="status-indicator" id="tray-status-indicator"></span>
+                            <span id="tray-status-text">Checking...</span>
+                        </div>
+                        <div class="tray-controls">
+                            <button type="button" id="tray-restart-btn" class="btn-secondary btn-small hidden">Restart Tray</button>
+                        </div>
                     </div>
                 </div>
                 <!-- Advanced Tab -->

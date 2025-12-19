@@ -1007,6 +1007,31 @@ body.resizing-sidebar {
     margin: 4px 0 8px 0;
 }
 
+.setting-sub-option {
+    margin: 8px 0 8px 26px;
+}
+
+.setting-sub-option .setting-label {
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
+.setting-sub-option .setting-select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    font-size: 13px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.setting-sub-option .setting-select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
 .setting-group textarea {
     width: 100%;
     padding: 10px;
@@ -1922,7 +1947,8 @@ body.resizing-sidebar {
 
 /* Service management */
 .service-status,
-.tailscale-status {
+.tailscale-status,
+.tray-status {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1952,7 +1978,8 @@ body.resizing-sidebar {
 }
 
 .service-controls,
-.tailscale-controls {
+.tailscale-controls,
+.tray-controls {
     display: flex;
     gap: 8px;
     margin-top: 8px;

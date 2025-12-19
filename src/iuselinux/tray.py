@@ -15,9 +15,7 @@ from .service import (
     DEFAULT_PORT,
     get_pid,
     get_plist_path,
-    get_tray_plist_path,
     is_loaded,
-    is_tray_loaded,
 )
 
 logger = logging.getLogger("iuselinux.tray")
@@ -50,7 +48,6 @@ class IUseLinuxTrayApp(rumps.App):  # type: ignore[misc]
         self.toggle_item = rumps.MenuItem("Start Service", callback=self.toggle_service)
         self.run_now_item = rumps.MenuItem("Run Server Now", callback=self.run_server_now)
         self.open_ui_item = rumps.MenuItem("Open Web UI", callback=self.open_web_ui)
-        self.hide_item = rumps.MenuItem("Hide Menu Bar Icon", callback=self.hide_tray)
         self.quit_item = rumps.MenuItem("Quit", callback=self.quit_app)
 
         self.menu = [
@@ -60,7 +57,6 @@ class IUseLinuxTrayApp(rumps.App):  # type: ignore[misc]
             None,  # Separator
             self.open_ui_item,
             None,  # Separator
-            self.hide_item,
             self.quit_item,
         ]
 
@@ -82,6 +78,7 @@ class IUseLinuxTrayApp(rumps.App):  # type: ignore[misc]
             self.toggle_item.set_callback(self.toggle_service)
             self.run_now_item.title = "Run Server Now (service active)"
             self.run_now_item.set_callback(None)  # Disable
+            self.quit_item.title = "Quit (service keeps running)"
         elif embedded_running and _embedded_server_proc is not None:
             self.status_item.title = (
                 f"Server: Running (embedded, PID {_embedded_server_proc.pid})"
@@ -90,12 +87,14 @@ class IUseLinuxTrayApp(rumps.App):  # type: ignore[misc]
             self.toggle_item.set_callback(None)  # Disable - can't start service while embedded running
             self.run_now_item.title = "Stop Embedded Server"
             self.run_now_item.set_callback(self.stop_embedded_server)
+            self.quit_item.title = "Quit"
         else:
             self.status_item.title = "Service: Stopped"
             self.toggle_item.title = "Start Service"
             self.toggle_item.set_callback(self.toggle_service)
             self.run_now_item.title = "Run Server Now"
             self.run_now_item.set_callback(self.run_server_now)
+            self.quit_item.title = "Quit"
 
     def toggle_service(self, _: rumps.MenuItem) -> None:
         """Start or stop the LaunchAgent service."""
@@ -171,16 +170,6 @@ class IUseLinuxTrayApp(rumps.App):  # type: ignore[misc]
         """Open the web UI in default browser."""
         port = int(get_config_value("tailscale_serve_port") or DEFAULT_PORT)
         subprocess.run(["open", f"http://localhost:{port}"])
-
-    def hide_tray(self, _: rumps.MenuItem) -> None:
-        """Hide the menu bar icon by unloading tray LaunchAgent."""
-        tray_plist = get_tray_plist_path()
-        if tray_plist.exists() and is_tray_loaded():
-            subprocess.run(
-                ["launchctl", "unload", str(tray_plist)],
-                capture_output=True,
-            )
-        rumps.quit_application()
 
     def quit_app(self, _: rumps.MenuItem) -> None:
         """Quit the tray application."""

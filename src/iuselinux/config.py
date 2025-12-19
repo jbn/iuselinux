@@ -16,6 +16,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 DEFAULTS: dict[str, Any] = {
     "custom_css": "",
     "prevent_sleep": True,  # Keep Mac awake while server is running
+    "sleep_mode": "ac_power",  # Sleep prevention mode: "ac_power" (-s) or "always" (-i)
     "api_token": "",  # Empty means no authentication required
     "contact_cache_ttl": 86400,  # Contact cache TTL in seconds (default 24 hours)
     "log_level": "WARNING",  # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
