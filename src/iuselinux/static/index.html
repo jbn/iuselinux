@@ -203,6 +203,18 @@
                         </div>
                         <p class="setting-hint" id="tailscale-hint"></p>
                     </div>
+                    <div class="setting-divider"></div>
+                    <div class="setting-group">
+                        <h3>Menu Bar Tray</h3>
+                        <p class="setting-description">The menu bar tray icon provides quick access to start/stop the service.</p>
+                        <div class="tray-status" id="tray-status">
+                            <span class="status-indicator" id="tray-status-indicator"></span>
+                            <span id="tray-status-text">Checking...</span>
+                        </div>
+                        <div class="tray-controls">
+                            <button type="button" id="tray-restart-btn" class="btn-secondary btn-small hidden">Restart Tray</button>
+                        </div>
+                    </div>
                 </div>
                 <!-- Advanced Tab -->
                 <div class="settings-tab-content" id="tab-advanced">

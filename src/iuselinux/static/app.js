@@ -1440,6 +1440,7 @@ function switchSettingsTab(tabName) {
     // Load service status when switching to service tab
     if (tabName === 'service') {
         updateServiceStatusUI();
+        updateTrayStatusUI();
     }
 }
 
@@ -1953,6 +1954,72 @@ if (tailscaleEnableBtn) {
 const tailscaleDisableBtn = document.getElementById('tailscale-disable-btn');
 if (tailscaleDisableBtn) {
     tailscaleDisableBtn.addEventListener('click', disableTailscale);
+}
+
+// Tray management functionality
+async function updateTrayStatusUI() {
+    const trayStatusIndicator = document.getElementById('tray-status-indicator');
+    const trayStatusText = document.getElementById('tray-status-text');
+    const trayRestartBtn = document.getElementById('tray-restart-btn');
+
+    if (!trayStatusIndicator) return;
+
+    try {
+        const res = await apiFetch('/tray/status');
+        if (!res.ok) {
+            console.error('Tray status API returned', res.status);
+            return;
+        }
+
+        const status = await res.json();
+
+        if (status.running) {
+            trayStatusIndicator.className = 'status-indicator running';
+            trayStatusText.textContent = `Running (PID ${status.pid})`;
+            trayRestartBtn.classList.remove('hidden');
+        } else if (status.installed) {
+            trayStatusIndicator.className = 'status-indicator stopped';
+            trayStatusText.textContent = 'Installed but not running';
+            trayRestartBtn.classList.remove('hidden');
+            trayRestartBtn.textContent = 'Start Tray';
+        } else {
+            trayStatusIndicator.className = 'status-indicator stopped';
+            trayStatusText.textContent = 'Not installed';
+            trayRestartBtn.classList.add('hidden');
+        }
+    } catch (err) {
+        console.error('Failed to get tray status:', err);
+        trayStatusText.textContent = 'Error checking status';
+    }
+}
+
+async function restartTray() {
+    const btn = document.getElementById('tray-restart-btn');
+    const originalText = btn.textContent;
+    btn.textContent = 'Restarting...';
+    btn.disabled = true;
+
+    try {
+        const res = await apiFetch('/tray/restart', { method: 'POST' });
+        const result = await res.json();
+
+        if (result.success) {
+            await updateTrayStatusUI();
+        } else {
+            alert('Failed to restart tray: ' + result.message);
+        }
+    } catch (err) {
+        console.error('Failed to restart tray:', err);
+        alert('Failed to restart tray');
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+const trayRestartBtn = document.getElementById('tray-restart-btn');
+if (trayRestartBtn) {
+    trayRestartBtn.addEventListener('click', restartTray);
 }
 
 // Custom notification sound upload functionality

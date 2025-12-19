@@ -1637,6 +1637,68 @@ def disable_tailscale() -> ServiceActionResponse:
     return ServiceActionResponse(success=success, message=message)
 
 
+class TrayStatusResponse(BaseModel):
+    """Response for tray status."""
+
+    installed: bool
+    loaded: bool
+    running: bool
+    pid: int | None = None
+
+
+@app.get("/tray/status", response_model=TrayStatusResponse)
+def get_tray_status() -> TrayStatusResponse:
+    """Get current tray status."""
+    status = service_api_module.get_tray_status()
+    return TrayStatusResponse(
+        installed=bool(status.get("installed")),
+        loaded=bool(status.get("loaded")),
+        running=bool(status.get("running")),
+        pid=status.get("pid") if status.get("pid") else None,
+    )
+
+
+@app.post("/tray/restart", response_model=ServiceActionResponse)
+def restart_tray() -> ServiceActionResponse:
+    """Restart the tray application.
+
+    Unloads and reloads the tray LaunchAgent.
+    """
+    if not service_api_module.is_tray_installed():
+        return ServiceActionResponse(
+            success=False,
+            message="Tray is not installed. Install the service first.",
+        )
+
+    plist_path = service_api_module.get_tray_plist_path()
+
+    # Unload if currently loaded
+    if service_api_module.is_tray_loaded():
+        import subprocess
+
+        subprocess.run(
+            ["launchctl", "unload", str(plist_path)],
+            capture_output=True,
+        )
+
+    # Load the tray
+    import subprocess
+
+    result = subprocess.run(
+        ["launchctl", "load", str(plist_path)],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        return ServiceActionResponse(
+            success=False,
+            message=f"Failed to start tray: {result.stderr}",
+        )
+
+    return ServiceActionResponse(success=True, message="Tray restarted.")
+
+
 # Version and update endpoints
 
 from . import updater as updater_module

@@ -1922,7 +1922,8 @@ body.resizing-sidebar {
 
 /* Service management */
 .service-status,
-.tailscale-status {
+.tailscale-status,
+.tray-status {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1952,7 +1953,8 @@ body.resizing-sidebar {
 }
 
 .service-controls,
-.tailscale-controls {
+.tailscale-controls,
+.tray-controls {
     display: flex;
     gap: 8px;
     margin-top: 8px;
