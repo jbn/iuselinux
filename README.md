@@ -35,11 +35,15 @@ uv sync --group dev
 
 ## Initial Setup
 
-**Important:** Before running iUseLinux for the first time, you must grant **Full Disk Access** permission to your terminal app. This allows iUseLinux to read the iMessage database.
+**Important:** iUseLinux needs **Full Disk Access** permission to read the iMessage database.
 
+**If running from terminal** (e.g., `uvx iuselinux`):
 1. Open **System Settings** > **Privacy & Security** > **Full Disk Access**
 2. Click the **+** button and add your terminal app (Terminal, iTerm2, VS Code, etc.)
 3. **Restart your terminal** for the permission to take effect
+
+**If running as a service** (e.g., `uvx iuselinux service install`):
+See [Full Disk Access for Service Mode](#full-disk-access-for-service-mode) below.
 
 Without this permission, iUseLinux will show an error page explaining how to fix it.
 
@@ -70,6 +74,18 @@ uvx iuselinux service status
 # Uninstall
 uvx iuselinux service uninstall
 ```
+
+### Full Disk Access for Service Mode
+
+When running as a service, you need to grant Full Disk Access to the iUseLinux launcher app (not your terminal):
+
+1. Open **System Settings** > **Privacy & Security** > **Full Disk Access**
+2. Click the **+** button
+3. Press **Cmd+Shift+G** and enter: `~/Library/Application Support/iuselinux/`
+4. Select **iUseLinux Service.app** and click **Open**
+5. Restart the service: `uvx iuselinux@latest service uninstall && uvx iuselinux@latest service install`
+
+The service install creates this app bundle automatically. It's a lightweight wrapper that allows macOS to grant Full Disk Access to the background service.
 
 ### Menu Bar Tray
 
@@ -468,3 +484,33 @@ brew install ffmpeg
 ```
 
 Without ffmpeg, videos will still display but thumbnails and streaming won't be available. The `/health` endpoint shows whether ffmpeg is detected.
+
+## Manual Removal
+
+To completely remove iUseLinux from your system:
+
+1. **Uninstall the service** (if installed):
+   ```bash
+   uvx iuselinux service uninstall
+   ```
+
+2. **Remove application data and logs**:
+   ```bash
+   rm -rf ~/Library/Application\ Support/iuselinux/
+   rm -rf ~/Library/Logs/iuselinux/
+   ```
+
+3. **Remove the app bundle** (if present):
+   ```bash
+   rm -rf ~/Applications/iUseLinux.app/
+   ```
+
+4. **Remove the uv tool installation** (if installed via `uv tool install`):
+   ```bash
+   uv tool uninstall iuselinux
+   ```
+
+5. **Revoke permissions** (optional):
+   - Open **System Settings** → **Privacy & Security** → **Full Disk Access**
+   - Remove any iUseLinux-related entries (Terminal, iUseLinux Service.app, etc.)
+   - Similarly check **Automation** and remove Terminal → Messages if desired

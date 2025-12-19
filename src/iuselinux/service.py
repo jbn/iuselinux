@@ -1,8 +1,10 @@
 """macOS LaunchAgent service management for iuselinux."""
 
+import os
 import plistlib
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +22,16 @@ DEFAULT_HOST = "127.0.0.1"
 TRAY_SERVICE_LABEL = "com.iuselinux.tray"
 TRAY_PLIST_FILENAME = f"{TRAY_SERVICE_LABEL}.plist"
 
+# App bundle constants (for Full Disk Access)
+APP_BUNDLE_NAME = "iUseLinux Service.app"
+APP_BUNDLE_IDENTIFIER = "com.iuselinux.launcher"
+APP_BUNDLE_EXECUTABLE = "iuselinux-launcher"
+
+# Tray app bundle constants (for Spotlight/Launchpad visibility)
+TRAY_APP_BUNDLE_NAME = "iUseLinux.app"
+TRAY_APP_BUNDLE_IDENTIFIER = "com.iuselinux.tray"
+TRAY_APP_BUNDLE_EXECUTABLE = "iuselinux-tray"
+
 
 def get_launch_agents_dir() -> Path:
     """Get the LaunchAgents directory path."""
@@ -35,6 +47,196 @@ def get_log_paths() -> tuple[Path, Path]:
     """Get paths for stdout and stderr logs."""
     log_dir = Path.home() / "Library" / "Logs" / "iuselinux"
     return log_dir / "iuselinux.log", log_dir / "iuselinux.err"
+
+
+def get_app_support_dir() -> Path:
+    """Get the Application Support directory for iuselinux."""
+    return Path.home() / "Library" / "Application Support" / "iuselinux"
+
+
+def get_app_bundle_path() -> Path:
+    """Get the path to the app bundle used for Full Disk Access."""
+    return get_app_support_dir() / APP_BUNDLE_NAME
+
+
+def get_app_icon_path() -> Path:
+    """Get the path to the app icon file."""
+    return Path(__file__).parent / "static" / "AppIcon.icns"
+
+
+def create_app_bundle() -> Path:
+    """Create minimal app bundle for Full Disk Access permissions.
+
+    When running as a LaunchAgent service, users need to grant Full Disk Access
+    to an app bundle rather than a terminal. This creates a minimal .app that
+    wraps the iuselinux launcher script.
+
+    Returns:
+        Path to the created .app bundle
+    """
+    app_path = get_app_bundle_path()
+    contents_path = app_path / "Contents"
+    macos_path = contents_path / "MacOS"
+    resources_path = contents_path / "Resources"
+
+    # Create directory structure
+    macos_path.mkdir(parents=True, exist_ok=True)
+    resources_path.mkdir(parents=True, exist_ok=True)
+
+    # Copy app icon if available
+    icon_src = get_app_icon_path()
+    if icon_src.exists():
+        shutil.copy2(icon_src, resources_path / "AppIcon.icns")
+
+    # Create Info.plist
+    info_plist = {
+        "CFBundleExecutable": APP_BUNDLE_EXECUTABLE,
+        "CFBundleIdentifier": APP_BUNDLE_IDENTIFIER,
+        "CFBundleName": "iUseLinux Service",
+        "CFBundlePackageType": "APPL",
+        "CFBundleVersion": "1.0",
+        "CFBundleShortVersionString": "1.0",
+        "CFBundleIconFile": "AppIcon",
+    }
+
+    plist_path = contents_path / "Info.plist"
+    with open(plist_path, "wb") as f:
+        plistlib.dump(info_plist, f)
+
+    # Create the launcher shell script
+    # This script detects the best way to run iuselinux at runtime
+    launcher_script = """\
+#!/bin/bash
+# iUseLinux service launcher - add this app to Full Disk Access
+# Location: ~/Library/Application Support/iuselinux/iUseLinux Service.app
+
+# Include common paths where uv/uvx/pyenv might be installed
+export PATH="$HOME/.local/bin:$HOME/.pyenv/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+if command -v uvx &> /dev/null; then
+    exec uvx iuselinux "$@"
+elif command -v iuselinux &> /dev/null; then
+    exec iuselinux "$@"
+else
+    exec python3 -m iuselinux "$@"
+fi
+"""
+
+    exec_path = macos_path / APP_BUNDLE_EXECUTABLE
+    with open(exec_path, "w") as f:
+        f.write(launcher_script)
+
+    # Make executable (755 permissions)
+    st = os.stat(exec_path)
+    os.chmod(exec_path, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    return app_path
+
+
+def remove_app_bundle() -> None:
+    """Remove the app bundle if it exists."""
+    app_path = get_app_bundle_path()
+    if app_path.exists():
+        shutil.rmtree(app_path)
+
+
+def get_launcher_executable() -> str:
+    """Get the path to the launcher executable inside the app bundle."""
+    return str(get_app_bundle_path() / "Contents" / "MacOS" / APP_BUNDLE_EXECUTABLE)
+
+
+def get_user_applications_dir() -> Path:
+    """Get the user's Applications directory."""
+    return Path.home() / "Applications"
+
+
+def get_tray_app_bundle_path() -> Path:
+    """Get the path to the tray app bundle in ~/Applications."""
+    return get_user_applications_dir() / TRAY_APP_BUNDLE_NAME
+
+
+def create_tray_app_bundle() -> Path:
+    """Create tray app bundle in ~/Applications for Spotlight/Launchpad visibility.
+
+    This creates a proper .app that users can find in Spotlight, add to Dock,
+    and launch manually if the tray was quit.
+
+    Returns:
+        Path to the created .app bundle
+    """
+    app_path = get_tray_app_bundle_path()
+    contents_path = app_path / "Contents"
+    macos_path = contents_path / "MacOS"
+    resources_path = contents_path / "Resources"
+
+    # Ensure ~/Applications exists
+    get_user_applications_dir().mkdir(parents=True, exist_ok=True)
+
+    # Create directory structure
+    macos_path.mkdir(parents=True, exist_ok=True)
+    resources_path.mkdir(parents=True, exist_ok=True)
+
+    # Copy app icon if available
+    icon_src = get_app_icon_path()
+    if icon_src.exists():
+        shutil.copy2(icon_src, resources_path / "AppIcon.icns")
+
+    # Create Info.plist
+    info_plist = {
+        "CFBundleExecutable": TRAY_APP_BUNDLE_EXECUTABLE,
+        "CFBundleIdentifier": TRAY_APP_BUNDLE_IDENTIFIER,
+        "CFBundleName": "iUseLinux",
+        "CFBundleDisplayName": "iUseLinux",
+        "CFBundlePackageType": "APPL",
+        "CFBundleVersion": "1.0",
+        "CFBundleShortVersionString": "1.0",
+        "CFBundleIconFile": "AppIcon",
+        "LSUIElement": True,  # Makes it a menu bar app (no Dock icon when running)
+    }
+
+    plist_path = contents_path / "Info.plist"
+    with open(plist_path, "wb") as f:
+        plistlib.dump(info_plist, f)
+
+    # Create the launcher shell script
+    launcher_script = """\
+#!/bin/bash
+# iUseLinux - menu bar tray icon
+# Launch this app to show the iUseLinux menu bar icon
+
+# Include common paths where uv/uvx/pyenv might be installed
+export PATH="$HOME/.local/bin:$HOME/.pyenv/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+if command -v uvx &> /dev/null; then
+    exec uvx iuselinux tray run
+elif command -v iuselinux &> /dev/null; then
+    exec iuselinux tray run
+else
+    exec python3 -m iuselinux tray run
+fi
+"""
+
+    exec_path = macos_path / TRAY_APP_BUNDLE_EXECUTABLE
+    with open(exec_path, "w") as f:
+        f.write(launcher_script)
+
+    # Make executable (755 permissions)
+    st = os.stat(exec_path)
+    os.chmod(exec_path, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    return app_path
+
+
+def remove_tray_app_bundle() -> None:
+    """Remove the tray app bundle if it exists."""
+    app_path = get_tray_app_bundle_path()
+    if app_path.exists():
+        shutil.rmtree(app_path)
+
+
+def get_tray_launcher_executable() -> str:
+    """Get the path to the tray launcher executable inside the app bundle."""
+    return str(get_tray_app_bundle_path() / "Contents" / "MacOS" / TRAY_APP_BUNDLE_EXECUTABLE)
 
 
 def find_iuselinux_executable() -> str | None:
@@ -68,39 +270,23 @@ def generate_plist(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
 ) -> dict:
-    """Generate the launchd plist dictionary."""
+    """Generate the launchd plist dictionary.
+
+    Uses the app bundle launcher script, which allows users to grant
+    Full Disk Access to the iUseLinux.app rather than needing to find
+    the underlying python3 or uvx binary.
+    """
     stdout_log, stderr_log = get_log_paths()
 
     # Ensure log directory exists
     stdout_log.parent.mkdir(parents=True, exist_ok=True)
 
-    executable = find_iuselinux_executable()
-
-    if executable and executable.startswith("uvx:"):
-        # Use uvx to run iuselinux
-        uvx_path = shutil.which("uvx")
-        program_args = [
-            uvx_path or "/usr/local/bin/uvx",
-            "iuselinux",
-            "--host", host,
-            "--port", str(port),
-        ]
-    elif executable and executable.startswith("python:"):
-        # Use Python module execution
-        python_path = executable.split(":", 1)[1]
-        program_args = [
-            python_path,
-            "-m", "iuselinux",
-            "--host", host,
-            "--port", str(port),
-        ]
-    else:
-        # Direct executable
-        program_args = [
-            executable or "/usr/local/bin/iuselinux",
-            "--host", host,
-            "--port", str(port),
-        ]
+    # Use the app bundle launcher - this allows users to grant FDA to the .app
+    program_args = [
+        get_launcher_executable(),
+        "--host", host,
+        "--port", str(port),
+    ]
 
     return {
         "Label": SERVICE_LABEL,
@@ -112,6 +298,8 @@ def generate_plist(
         "EnvironmentVariables": {
             # Ensure we have a proper PATH for finding ffmpeg, tailscale, etc.
             "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+            # Mark that we're running as the launchd service (for conflict detection)
+            "IUSELINUX_LAUNCHD_SERVICE": "1",
         },
     }
 
@@ -133,24 +321,25 @@ def is_loaded() -> bool:
 
 def get_pid() -> int | None:
     """Get the PID of the running service, if any."""
+    # Use launchctl list (no argument) which outputs tabular format:
+    # PID\tStatus\tLabel  (or "-" for PID if not running)
     result = subprocess.run(
-        ["launchctl", "list", SERVICE_LABEL],
+        ["launchctl", "list"],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         return None
 
-    # Parse the output - format is: PID\tStatus\tLabel
-    # Or: -\tStatus\tLabel if not running
-    lines = result.stdout.strip().split("\n")
-    for line in lines:
-        parts = line.split("\t")
-        if len(parts) >= 1:
-            try:
-                return int(parts[0])
-            except ValueError:
-                return None
+    # Find our service in the output
+    for line in result.stdout.strip().split("\n"):
+        if SERVICE_LABEL in line:
+            parts = line.split("\t")
+            if len(parts) >= 1:
+                try:
+                    return int(parts[0])
+                except ValueError:
+                    return None  # "-" means not running
     return None
 
 
@@ -175,6 +364,10 @@ def install(
 
     if plist_path.exists() and not force:
         return False, f"Service already installed at {plist_path}. Use --force to overwrite."
+
+    # Create the app bundle for Full Disk Access
+    # This must be done before generating the plist since plist references it
+    app_bundle_path = create_app_bundle()
 
     # Ensure LaunchAgents directory exists
     plist_path.parent.mkdir(parents=True, exist_ok=True)
@@ -201,7 +394,11 @@ def install(
     if result.returncode != 0:
         return False, f"Failed to load service: {result.stderr}"
 
-    messages = ["Service installed and started. Logs at ~/Library/Logs/iuselinux/"]
+    messages = [
+        "Service installed and started.",
+        f"For Full Disk Access, add: {app_bundle_path}",
+        "Logs at ~/Library/Logs/iuselinux/",
+    ]
 
     # Install tray if requested
     if tray:
@@ -218,7 +415,8 @@ def uninstall() -> tuple[bool, str]:
     """Uninstall the LaunchAgent.
 
     Also uninstalls the tray LaunchAgent if installed, disables Tailscale
-    serve if it was enabled, and clears the Tailscale config.
+    serve if it was enabled, clears the Tailscale config, and removes
+    the app bundle.
 
     Returns:
         Tuple of (success, message)
@@ -242,6 +440,9 @@ def uninstall() -> tuple[bool, str]:
     plist_path.unlink()
 
     messages = ["Service uninstalled."]
+
+    # Remove the app bundle used for Full Disk Access
+    remove_app_bundle()
 
     # Uninstall tray if installed
     if is_tray_installed():
@@ -576,6 +777,14 @@ def is_port_in_use(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> bool:
             return True
 
 
+def is_running_as_launchd_service() -> bool:
+    """Check if we are running as the launchd service.
+
+    The launchd plist sets IUSELINUX_LAUNCHD_SERVICE=1 to mark service processes.
+    """
+    return os.environ.get("IUSELINUX_LAUNCHD_SERVICE") == "1"
+
+
 def check_startup_conflicts(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
@@ -589,12 +798,15 @@ def check_startup_conflicts(
     Returns:
         Tuple of (can_start, message). If can_start is False, message explains why.
     """
+    # Skip conflict check if we ARE the launchd service
+    if is_running_as_launchd_service():
+        return True, None
+
     # Check if the LaunchAgent service is running
-    if is_loaded() and get_pid() is not None:
-        status = get_status()
-        pid = status.get("pid")
+    service_pid = get_pid()
+    if is_loaded() and service_pid is not None:
         msg = (
-            f"iuselinux service is already running (PID {pid}).\n"
+            f"iuselinux service is already running (PID {service_pid}).\n"
             f"\n"
             f"The server is available at http://{host}:{port}\n"
             f"\n"
@@ -635,42 +847,27 @@ def get_tray_log_paths() -> tuple[Path, Path]:
 
 
 def generate_tray_plist() -> dict[str, object]:
-    """Generate the tray app launchd plist dictionary."""
+    """Generate the tray app launchd plist dictionary.
+
+    Uses the tray app bundle from ~/Applications, which users can also
+    launch manually from Spotlight/Launchpad if they quit the tray.
+
+    Note: KeepAlive is NOT set, so the tray won't auto-restart if quit.
+    This is intentional - when users click Quit, they expect it to quit.
+    """
     stdout_log, stderr_log = get_tray_log_paths()
 
     # Ensure log directory exists
     stdout_log.parent.mkdir(parents=True, exist_ok=True)
 
-    executable = find_iuselinux_executable()
-
-    if executable and executable.startswith("uvx:"):
-        # Use uvx to run iuselinux tray
-        uvx_path = shutil.which("uvx")
-        program_args = [
-            uvx_path or "/usr/local/bin/uvx",
-            "iuselinux",
-            "tray", "run",
-        ]
-    elif executable and executable.startswith("python:"):
-        # Use Python module execution
-        python_path = executable.split(":", 1)[1]
-        program_args = [
-            python_path,
-            "-m", "iuselinux",
-            "tray", "run",
-        ]
-    else:
-        # Direct executable
-        program_args = [
-            executable or "/usr/local/bin/iuselinux",
-            "tray", "run",
-        ]
+    # Use the tray app bundle - allows users to find/launch via Spotlight
+    program_args = [get_tray_launcher_executable()]
 
     return {
         "Label": TRAY_SERVICE_LABEL,
         "ProgramArguments": program_args,
         "RunAtLoad": True,
-        "KeepAlive": True,
+        # No KeepAlive - tray should stay quit when user quits it
         "StandardOutPath": str(stdout_log),
         "StandardErrorPath": str(stderr_log),
         "EnvironmentVariables": {
@@ -696,28 +893,33 @@ def is_tray_loaded() -> bool:
 
 def get_tray_pid() -> int | None:
     """Get the PID of the running tray, if any."""
+    # Use launchctl list (no argument) which outputs tabular format:
+    # PID\tStatus\tLabel  (or "-" for PID if not running)
     result = subprocess.run(
-        ["launchctl", "list", TRAY_SERVICE_LABEL],
+        ["launchctl", "list"],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         return None
 
-    # Parse the output - format is: PID\tStatus\tLabel
-    lines = result.stdout.strip().split("\n")
-    for line in lines:
-        parts = line.split("\t")
-        if len(parts) >= 1:
-            try:
-                return int(parts[0])
-            except ValueError:
-                return None
+    # Find our service in the output
+    for line in result.stdout.strip().split("\n"):
+        if TRAY_SERVICE_LABEL in line:
+            parts = line.split("\t")
+            if len(parts) >= 1:
+                try:
+                    return int(parts[0])
+                except ValueError:
+                    return None  # "-" means not running
     return None
 
 
 def install_tray(force: bool = False) -> tuple[bool, str]:
     """Install the tray LaunchAgent.
+
+    Creates an app bundle in ~/Applications that users can find in Spotlight,
+    and a LaunchAgent that starts the tray on login.
 
     Returns:
         Tuple of (success, message)
@@ -726,6 +928,10 @@ def install_tray(force: bool = False) -> tuple[bool, str]:
 
     if plist_path.exists() and not force:
         return False, f"Tray already installed at {plist_path}. Use --force to overwrite."
+
+    # Create the tray app bundle in ~/Applications
+    # This must be done before generating the plist since plist references it
+    tray_app_path = create_tray_app_bundle()
 
     # Ensure LaunchAgents directory exists
     plist_path.parent.mkdir(parents=True, exist_ok=True)
@@ -752,11 +958,11 @@ def install_tray(force: bool = False) -> tuple[bool, str]:
     if result.returncode != 0:
         return False, f"Failed to load tray: {result.stderr}"
 
-    return True, "Tray installed and started."
+    return True, f"Tray installed at {tray_app_path} and started."
 
 
 def uninstall_tray() -> tuple[bool, str]:
-    """Uninstall the tray LaunchAgent.
+    """Uninstall the tray LaunchAgent and app bundle.
 
     Returns:
         Tuple of (success, message)
@@ -778,6 +984,9 @@ def uninstall_tray() -> tuple[bool, str]:
 
     # Remove the plist file
     plist_path.unlink()
+
+    # Remove the tray app bundle from ~/Applications
+    remove_tray_app_bundle()
 
     return True, "Tray uninstalled."
 
