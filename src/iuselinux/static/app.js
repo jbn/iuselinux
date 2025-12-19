@@ -1367,6 +1367,15 @@ async function openSettings() {
 
     // Populate form with current values
     settingPreventSleep.checked = currentConfig.prevent_sleep || false;
+    const settingSleepMode = document.getElementById('setting-sleep-mode');
+    if (settingSleepMode) {
+        settingSleepMode.value = currentConfig.sleep_mode || 'ac_power';
+        // Show/hide sleep mode based on prevent_sleep checkbox
+        const sleepModeContainer = document.getElementById('sleep-mode-container');
+        if (sleepModeContainer) {
+            sleepModeContainer.style.display = settingPreventSleep.checked ? 'block' : 'none';
+        }
+    }
     settingCustomCss.value = currentConfig.custom_css || '';
     settingApiToken.value = currentConfig.api_token || '';
 
@@ -1618,6 +1627,7 @@ async function saveSettings() {
     const settingNotifications = document.getElementById('setting-notifications');
     const settingNotificationSound = document.getElementById('setting-notification-sound');
     const settingUseCustomSound = document.getElementById('setting-use-custom-sound');
+    const settingSleepMode = document.getElementById('setting-sleep-mode');
     const settingThumbnailCacheTtl = document.getElementById('setting-thumbnail-cache-ttl');
     const settingThumbnailTimestamp = document.getElementById('setting-thumbnail-timestamp');
     const settingWebsocketPollInterval = document.getElementById('setting-websocket-poll-interval');
@@ -1625,6 +1635,7 @@ async function saveSettings() {
 
     const updates = {
         prevent_sleep: settingPreventSleep.checked,
+        sleep_mode: settingSleepMode ? settingSleepMode.value : 'ac_power',
         custom_css: settingCustomCss.value,
         api_token: settingApiToken.value,
         notifications_enabled: settingNotifications ? settingNotifications.checked : true,
@@ -1664,6 +1675,14 @@ settingsBtn.addEventListener('click', openSettings);
 settingsClose.addEventListener('click', closeSettings);
 settingsCancel.addEventListener('click', closeSettings);
 settingsSave.addEventListener('click', saveSettings);
+
+// Toggle sleep mode dropdown visibility when prevent sleep checkbox changes
+settingPreventSleep.addEventListener('change', () => {
+    const sleepModeContainer = document.getElementById('sleep-mode-container');
+    if (sleepModeContainer) {
+        sleepModeContainer.style.display = settingPreventSleep.checked ? 'block' : 'none';
+    }
+});
 
 // Settings tab switching
 document.querySelectorAll('.settings-tab').forEach(tab => {

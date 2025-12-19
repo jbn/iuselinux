@@ -65,8 +65,12 @@ _db_accessible: bool | None = None
 _caffeinate_proc: subprocess.Popen[bytes] | None = None
 
 
-def start_caffeinate() -> bool:
+def start_caffeinate(mode: str | None = None) -> bool:
     """Start caffeinate process to prevent system sleep.
+
+    Args:
+        mode: Sleep prevention mode - "ac_power" (-s) or "always" (-i).
+              If None, reads from config. Default is "ac_power".
 
     Returns True if caffeinate was started successfully, False otherwise.
     """
@@ -76,16 +80,23 @@ def start_caffeinate() -> bool:
         # Already running
         return True
 
+    # Get mode from config if not provided
+    if mode is None:
+        mode = get_config().get("sleep_mode", "ac_power")
+
+    # Map mode to caffeinate flag
+    # -s: prevent sleep only when on AC power (default, battery-friendly)
+    # -i: prevent idle sleep always (even on battery)
+    flag = "-s" if mode == "ac_power" else "-i"
+
     try:
-        # Start caffeinate to prevent sleep
-        # -d: prevent display sleep
-        # -i: prevent system idle sleep
         _caffeinate_proc = subprocess.Popen(
-            ["caffeinate", "-di"],
+            ["caffeinate", flag],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        logger.info("Caffeinate started - preventing system sleep")
+        mode_desc = "on AC power only" if mode == "ac_power" else "always"
+        logger.info("Caffeinate started (%s) - preventing system sleep", mode_desc)
         return True
     except FileNotFoundError:
         logger.warning("caffeinate not found (not on macOS?)")
@@ -1404,6 +1415,7 @@ class ConfigResponse(BaseModel):
 
     custom_css: str = ""
     prevent_sleep: bool = True
+    sleep_mode: str = "ac_power"  # "ac_power" or "always"
     api_token: str = ""
     contact_cache_ttl: int = 86400  # seconds
     log_level: str = "WARNING"
@@ -1423,6 +1435,7 @@ class ConfigUpdateRequest(BaseModel):
 
     custom_css: str | None = None
     prevent_sleep: bool | None = None
+    sleep_mode: str | None = None
     api_token: str | None = None
     contact_cache_ttl: int | None = None
     log_level: str | None = None
@@ -1462,6 +1475,12 @@ def update_configuration(request: ConfigUpdateRequest) -> ConfigResponse:
                 start_caffeinate()
             else:
                 stop_caffeinate()
+        # Restart caffeinate if sleep_mode changed while prevent_sleep is enabled
+        elif "sleep_mode" in updates:
+            current_config = get_config()
+            if current_config.get("prevent_sleep", False):
+                stop_caffeinate()
+                start_caffeinate(updates["sleep_mode"])
     else:
         config = get_config()
     return ConfigResponse(**config)

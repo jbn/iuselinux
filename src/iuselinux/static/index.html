@@ -80,6 +80,15 @@
                             <span>Prevent Sleep</span>
                         </label>
                         <p class="setting-description">Keep your Mac awake while the gateway is running</p>
+                        <div id="sleep-mode-container" class="setting-sub-option">
+                            <label class="setting-label" for="setting-sleep-mode">
+                                <span>Sleep Mode</span>
+                            </label>
+                            <select id="setting-sleep-mode" class="setting-select">
+                                <option value="ac_power">Only when on AC power (battery-friendly)</option>
+                                <option value="always">Always prevent sleep</option>
+                            </select>
+                        </div>
                         <div id="sleep-control" class="sleep-control hidden">
                             <button type="button" id="allow-sleep-btn" class="btn-secondary btn-small hidden">
                                 ↳ Allow to Sleep Now
