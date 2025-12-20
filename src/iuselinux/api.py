@@ -1561,6 +1561,8 @@ class ServiceStatusResponse(BaseModel):
     tailscale_connected: bool
     tailscale_serving: bool
     tailscale_serve_port: int | None = None
+    tailscale_dns_name: str | None = None
+    tailscale_url: str | None = None
 
 
 @app.get("/service/status", response_model=ServiceStatusResponse)
