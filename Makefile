@@ -18,10 +18,11 @@ clean:
 remove-install:
 	-uvx iuselinux service uninstall
 	rm -rf ~/.local/share/uv/tools/iuselinux
+	rm -f ~/.local/bin/iuselinux
 	rm -rf ~/Library/Application\ Support/iuselinux/
 	rm -rf ~/Library/Logs/iuselinux/
 	rm -rf ~/Applications/iUseLinux.app/
 
 reset-install: remove-install
 	uv tool install --force -e .
-	uvx iuselinux service install
+	uvx iuselinux service install --force
