@@ -15,6 +15,8 @@ from .service import (
     DEFAULT_PORT,
     get_pid,
     get_plist_path,
+    install,
+    is_installed,
     is_loaded,
 )
 
@@ -88,6 +90,13 @@ class IUseLinuxTrayApp(rumps.App):  # type: ignore[misc]
             self.run_now_item.title = "Stop Embedded Server"
             self.run_now_item.set_callback(self.stop_embedded_server)
             self.quit_item.title = "Quit"
+        elif not is_installed():
+            self.status_item.title = "Service: Not Installed"
+            self.toggle_item.title = "Install Service"
+            self.toggle_item.set_callback(self.install_service)
+            self.run_now_item.title = "Run Server Now"
+            self.run_now_item.set_callback(self.run_server_now)
+            self.quit_item.title = "Quit"
         else:
             self.status_item.title = "Service: Stopped"
             self.toggle_item.title = "Start Service"
@@ -95,6 +104,19 @@ class IUseLinuxTrayApp(rumps.App):  # type: ignore[misc]
             self.run_now_item.title = "Run Server Now"
             self.run_now_item.set_callback(self.run_server_now)
             self.quit_item.title = "Quit"
+
+    def install_service(self, _: rumps.MenuItem) -> None:
+        """Install the LaunchAgent service."""
+        success, message = install()
+        if success:
+            rumps.notification(
+                title="iUseLinux",
+                subtitle="Service Installed",
+                message="The service has been installed and started.",
+            )
+        else:
+            rumps.alert("Installation Failed", message)
+        self.update_status()
 
     def toggle_service(self, _: rumps.MenuItem) -> None:
         """Start or stop the LaunchAgent service."""

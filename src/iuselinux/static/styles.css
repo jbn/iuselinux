@@ -1148,7 +1148,21 @@ body.resizing-sidebar {
 .about-description {
     font-size: 13px;
     color: var(--text-secondary);
+    margin: 0 0 8px 0;
+}
+
+.about-link {
+    font-size: 13px;
     margin: 0 0 12px 0;
+}
+
+.about-link a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.about-link a:hover {
+    text-decoration: underline;
 }
 
 .about-status {
