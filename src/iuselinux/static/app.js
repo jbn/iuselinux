@@ -1840,7 +1840,7 @@ async function updateServiceStatusUI() {
             tailscaleStatusText.textContent = `Serving on port ${status.tailscale_serve_port || 1960}`;
             tailscaleEnableBtn.classList.add('hidden');
             tailscaleDisableBtn.classList.remove('hidden');
-            tailscaleHint.textContent = 'Access via https://your-machine.tailnet-name.ts.net';
+            tailscaleHint.textContent = status.tailscale_url ? `Access via ${status.tailscale_url}` : 'Access via https://your-machine.tailnet-name.ts.net';
         } else {
             tailscaleStatusIndicator.className = 'status-indicator stopped';
             tailscaleStatusText.textContent = 'Available but not serving';
