@@ -70,6 +70,7 @@
                 <button class="settings-tab" data-tab="service">Service</button>
                 <button class="settings-tab" data-tab="advanced">Advanced</button>
                 <button class="settings-tab" data-tab="install">Install</button>
+                <button class="settings-tab" data-tab="about">About</button>
             </div>
             <div class="modal-body">
                 <!-- General Tab -->
@@ -155,33 +156,6 @@
                             <span>Auto-Update</span>
                         </label>
                         <p class="setting-description">Automatically install updates when available</p>
-                    </div>
-                    <div class="setting-divider"></div>
-                    <div class="about-section">
-                        <h3>About</h3>
-                        <p class="about-name">iUseLinux <span id="app-version">loading...</span></p>
-                        <p class="about-description">A web interface for reading and sending iMessages on macOS.</p>
-                        <div class="about-status">
-                            <span class="status-label">Update Status:</span>
-                            <span id="update-status" class="status-value">checking...</span>
-                        </div>
-                        <div class="update-controls">
-                            <button type="button" id="check-updates-btn" class="btn-secondary btn-small">Check for Updates</button>
-                            <button type="button" id="install-update-btn" class="btn-primary btn-small hidden">Install Update</button>
-                        </div>
-                        <p id="update-message" class="update-message hidden"></p>
-                        <div class="about-status">
-                            <span class="status-label">Database:</span>
-                            <span id="status-db" class="status-value">checking...</span>
-                        </div>
-                        <div class="about-status">
-                            <span class="status-label">FFmpeg:</span>
-                            <span id="status-ffmpeg" class="status-value">checking...</span>
-                        </div>
-                        <div class="about-status">
-                            <span class="status-label">Contacts:</span>
-                            <span id="status-contacts" class="status-value">checking...</span>
-                        </div>
                     </div>
                 </div>
                 <!-- Service Tab -->
@@ -311,6 +285,38 @@ ssh -L 1960:localhost:1960 user@your-mac-ip</code></pre>
                         <p class="setting-description">Find your Mac's IP:</p>
                         <pre class="install-code"><code>ipconfig getifaddr en0</code></pre>
                         <p class="setting-hint install-warning">This exposes iuselinux to everyone on your local network. Use <code>--api-token SECRET</code> for basic protection.</p>
+                    </div>
+                </div>
+                <!-- About Tab -->
+                <div class="settings-tab-content" id="tab-about">
+                    <div class="about-section">
+                        <p class="about-name">iUseLinux <span id="app-version">loading...</span></p>
+                        <p class="about-description">A web interface for reading and sending iMessages on macOS.</p>
+                        <p class="about-link"><a href="https://www.iuselinux.com" target="_blank" rel="noopener noreferrer">www.iuselinux.com</a></p>
+                        <div class="setting-divider"></div>
+                        <div class="about-status">
+                            <span class="status-label">Update Status:</span>
+                            <span id="update-status" class="status-value">checking...</span>
+                        </div>
+                        <div class="update-controls">
+                            <button type="button" id="check-updates-btn" class="btn-secondary btn-small">Check for Updates</button>
+                            <button type="button" id="install-update-btn" class="btn-primary btn-small hidden">Install Update</button>
+                        </div>
+                        <p id="update-message" class="update-message hidden"></p>
+                        <div class="setting-divider"></div>
+                        <h3>System Status</h3>
+                        <div class="about-status">
+                            <span class="status-label">Database:</span>
+                            <span id="status-db" class="status-value">checking...</span>
+                        </div>
+                        <div class="about-status">
+                            <span class="status-label">FFmpeg:</span>
+                            <span id="status-ffmpeg" class="status-value">checking...</span>
+                        </div>
+                        <div class="about-status">
+                            <span class="status-label">Contacts:</span>
+                            <span id="status-contacts" class="status-value">checking...</span>
+                        </div>
                     </div>
                 </div>
             </div>

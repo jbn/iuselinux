@@ -1451,6 +1451,12 @@ function switchSettingsTab(tabName) {
         updateServiceStatusUI();
         updateTrayStatusUI();
     }
+
+    // Load health/version status when switching to about tab
+    if (tabName === 'about') {
+        updateHealthStatus();
+        fetchVersionStatus();
+    }
 }
 
 async function updateHealthStatus() {
