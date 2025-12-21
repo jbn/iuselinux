@@ -136,6 +136,8 @@ def create_app_bundle() -> Path:
 
     # Create the launcher shell script
     # This script detects the best way to run iuselinux at runtime
+    # Prefers 'iuselinux' (from uv tool install) over 'uvx' so that
+    # 'uv tool upgrade iuselinux' affects the service
     launcher_script = """\
 #!/bin/bash
 # iUseLinux service launcher - add this app to Full Disk Access
@@ -144,10 +146,10 @@ def create_app_bundle() -> Path:
 # Include common paths where uv/uvx/pyenv might be installed
 export PATH="$HOME/.local/bin:$HOME/.pyenv/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-if command -v uvx &> /dev/null; then
-    exec uvx iuselinux "$@"
-elif command -v iuselinux &> /dev/null; then
+if command -v iuselinux &> /dev/null; then
     exec iuselinux "$@"
+elif command -v uvx &> /dev/null; then
+    exec uvx iuselinux "$@"
 else
     exec python3 -m iuselinux "$@"
 fi
@@ -288,6 +290,8 @@ def create_tray_app_bundle() -> Path:
         plistlib.dump(info_plist, f)
 
     # Create the launcher shell script
+    # Prefers 'iuselinux' (from uv tool install) over 'uvx' so that
+    # 'uv tool upgrade iuselinux' affects the tray
     launcher_script = """\
 #!/bin/bash
 # iUseLinux - menu bar tray icon
@@ -296,10 +300,10 @@ def create_tray_app_bundle() -> Path:
 # Include common paths where uv/uvx/pyenv might be installed
 export PATH="$HOME/.local/bin:$HOME/.pyenv/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-if command -v uvx &> /dev/null; then
-    exec uvx iuselinux tray run
-elif command -v iuselinux &> /dev/null; then
+if command -v iuselinux &> /dev/null; then
     exec iuselinux tray run
+elif command -v uvx &> /dev/null; then
+    exec uvx iuselinux tray run
 else
     exec python3 -m iuselinux tray run
 fi
