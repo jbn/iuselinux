@@ -1,5 +1,6 @@
 """macOS LaunchAgent service management for iuselinux."""
 
+import fcntl
 import os
 import plistlib
 import shutil
@@ -7,7 +8,9 @@ import socket
 import stat
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Generator
 
 from .config import update_config
 
@@ -31,6 +34,27 @@ APP_BUNDLE_EXECUTABLE = "iuselinux-launcher"
 TRAY_APP_BUNDLE_NAME = "iUseLinux.app"
 TRAY_APP_BUNDLE_IDENTIFIER = "com.iuselinux.tray"
 TRAY_APP_BUNDLE_EXECUTABLE = "iuselinux-tray"
+
+# State directory for locks and PID files
+STATE_DIR = Path.home() / ".local" / "state" / "iuselinux"
+
+
+@contextmanager
+def _service_lock() -> Generator[None, None, None]:
+    """Acquire exclusive lock for install/uninstall operations.
+
+    Prevents race conditions when multiple processes attempt to install
+    or uninstall the service concurrently. The lock is automatically
+    released when the process exits or crashes.
+    """
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    lock_file = STATE_DIR / "service.lock"
+    with open(lock_file, "w") as lock_fd:
+        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
 
 
 def get_launch_agents_dir() -> Path:
@@ -73,8 +97,15 @@ def create_app_bundle() -> Path:
 
     Returns:
         Path to the created .app bundle
+
+    Raises:
+        BundleOwnershipError: If an existing app at the target path is not ours
     """
     app_path = get_app_bundle_path()
+
+    # Verify ownership before overwriting - prevent destroying user's apps
+    verify_bundle_ownership(app_path, APP_BUNDLE_IDENTIFIER)
+
     contents_path = app_path / "Contents"
     macos_path = contents_path / "MacOS"
     resources_path = contents_path / "Resources"
@@ -134,9 +165,15 @@ fi
 
 
 def remove_app_bundle() -> None:
-    """Remove the app bundle if it exists."""
+    """Remove the app bundle if it exists.
+
+    Raises:
+        BundleOwnershipError: If the existing app is not ours
+    """
     app_path = get_app_bundle_path()
     if app_path.exists():
+        # Verify ownership before deletion - prevent destroying user's apps
+        verify_bundle_ownership(app_path, APP_BUNDLE_IDENTIFIER)
         shutil.rmtree(app_path)
 
 
@@ -155,6 +192,51 @@ def get_tray_app_bundle_path() -> Path:
     return get_user_applications_dir() / TRAY_APP_BUNDLE_NAME
 
 
+class BundleOwnershipError(Exception):
+    """Raised when an existing app bundle is not owned by iUseLinux."""
+
+    pass
+
+
+def verify_bundle_ownership(app_path: Path, expected_identifier: str) -> bool:
+    """Verify that an existing app bundle belongs to iUseLinux.
+
+    Args:
+        app_path: Path to the .app bundle
+        expected_identifier: The CFBundleIdentifier we expect (e.g. "com.iuselinux.tray")
+
+    Returns:
+        True if the bundle is ours or doesn't exist, False if it exists but belongs to someone else
+
+    Raises:
+        BundleOwnershipError: If the bundle exists but has a different identifier
+    """
+    if not app_path.exists():
+        return True
+
+    info_plist = app_path / "Contents" / "Info.plist"
+    if not info_plist.exists():
+        # Malformed bundle without Info.plist - refuse to overwrite
+        raise BundleOwnershipError(
+            f"Existing app at {app_path} has no Info.plist - refusing to overwrite"
+        )
+
+    try:
+        with open(info_plist, "rb") as f:
+            plist = plistlib.load(f)
+        actual_identifier = plist.get("CFBundleIdentifier", "")
+        if actual_identifier != expected_identifier:
+            raise BundleOwnershipError(
+                f"Existing app at {app_path} has identifier '{actual_identifier}', "
+                f"expected '{expected_identifier}' - refusing to overwrite"
+            )
+        return True
+    except plistlib.InvalidFileException as e:
+        raise BundleOwnershipError(
+            f"Existing app at {app_path} has invalid Info.plist: {e}"
+        )
+
+
 def create_tray_app_bundle() -> Path:
     """Create tray app bundle in ~/Applications for Spotlight/Launchpad visibility.
 
@@ -163,8 +245,15 @@ def create_tray_app_bundle() -> Path:
 
     Returns:
         Path to the created .app bundle
+
+    Raises:
+        BundleOwnershipError: If an existing app at the target path is not ours
     """
     app_path = get_tray_app_bundle_path()
+
+    # Verify ownership before overwriting - prevent destroying user's apps
+    verify_bundle_ownership(app_path, TRAY_APP_BUNDLE_IDENTIFIER)
+
     contents_path = app_path / "Contents"
     macos_path = contents_path / "MacOS"
     resources_path = contents_path / "Resources"
@@ -228,9 +317,15 @@ fi
 
 
 def remove_tray_app_bundle() -> None:
-    """Remove the tray app bundle if it exists."""
+    """Remove the tray app bundle if it exists.
+
+    Raises:
+        BundleOwnershipError: If the existing app is not ours
+    """
     app_path = get_tray_app_bundle_path()
     if app_path.exists():
+        # Verify ownership before deletion - prevent destroying user's apps
+        verify_bundle_ownership(app_path, TRAY_APP_BUNDLE_IDENTIFIER)
         shutil.rmtree(app_path)
 
 
@@ -360,55 +455,60 @@ def install(
     Returns:
         Tuple of (success, message)
     """
-    plist_path = get_plist_path()
+    with _service_lock():
+        plist_path = get_plist_path()
 
-    if plist_path.exists() and not force:
-        return False, f"Service already installed at {plist_path}. Use --force to overwrite."
+        if plist_path.exists() and not force:
+            return False, f"Service already installed at {plist_path}. Use --force to overwrite."
 
-    # Create the app bundle for Full Disk Access
-    # This must be done before generating the plist since plist references it
-    app_bundle_path = create_app_bundle()
+        # Create the app bundle for Full Disk Access
+        # This must be done before generating the plist since plist references it
+        app_bundle_path = create_app_bundle()
 
-    # Ensure LaunchAgents directory exists
-    plist_path.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure LaunchAgents directory exists
+        plist_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Unload existing service if loaded
-    if is_loaded():
-        subprocess.run(
-            ["launchctl", "unload", str(plist_path)],
+        # Unload existing service if loaded
+        if is_loaded():
+            unload_result = subprocess.run(
+                ["launchctl", "unload", str(plist_path)],
+                capture_output=True,
+                text=True,
+            )
+            if unload_result.returncode != 0:
+                # If unload fails, the subsequent load will likely fail too
+                return False, f"Failed to unload existing service: {unload_result.stderr}"
+
+        # Generate and write plist
+        plist_data = generate_plist(host=host, port=port)
+        with open(plist_path, "wb") as f:
+            plistlib.dump(plist_data, f)
+
+        # Load the service
+        result = subprocess.run(
+            ["launchctl", "load", str(plist_path)],
             capture_output=True,
+            text=True,
         )
 
-    # Generate and write plist
-    plist_data = generate_plist(host=host, port=port)
-    with open(plist_path, "wb") as f:
-        plistlib.dump(plist_data, f)
+        if result.returncode != 0:
+            return False, f"Failed to load service: {result.stderr}"
 
-    # Load the service
-    result = subprocess.run(
-        ["launchctl", "load", str(plist_path)],
-        capture_output=True,
-        text=True,
-    )
+        messages = [
+            "Service installed and started.",
+            f"For Full Disk Access, add: {app_bundle_path}",
+            "Logs at ~/Library/Logs/iuselinux/",
+        ]
 
-    if result.returncode != 0:
-        return False, f"Failed to load service: {result.stderr}"
+        # Install tray if requested
+        if tray:
+            tray_success, tray_msg = install_tray(force=force)
+            if tray_success:
+                messages.append("Menu bar tray icon installed.")
+            else:
+                messages.append(f"Warning: Tray installation failed: {tray_msg}")
 
-    messages = [
-        "Service installed and started.",
-        f"For Full Disk Access, add: {app_bundle_path}",
-        "Logs at ~/Library/Logs/iuselinux/",
-    ]
-
-    # Install tray if requested
-    if tray:
-        tray_success, tray_msg = install_tray(force=force)
-        if tray_success:
-            messages.append("Menu bar tray icon installed.")
-        else:
-            messages.append(f"Warning: Tray installation failed: {tray_msg}")
-
-    return True, " ".join(messages)
+        return True, " ".join(messages)
 
 
 def uninstall() -> tuple[bool, str]:
@@ -418,49 +518,67 @@ def uninstall() -> tuple[bool, str]:
     serve if it was enabled, clears the Tailscale config, and removes
     the app bundle.
 
+    Uses best-effort cleanup: continues removing components even if some
+    steps fail, collecting warnings rather than failing early.
+
     Returns:
         Tuple of (success, message)
     """
-    plist_path = get_plist_path()
+    with _service_lock():
+        plist_path = get_plist_path()
 
-    if not plist_path.exists():
-        return False, "Service is not installed."
+        if not plist_path.exists():
+            return False, "Service is not installed."
 
-    # Unload the service if loaded
-    if is_loaded():
-        result = subprocess.run(
-            ["launchctl", "unload", str(plist_path)],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            return False, f"Failed to unload service: {result.stderr}"
+        messages = []
+        warnings = []
 
-    # Remove the plist file
-    plist_path.unlink()
+        # Unload the service if loaded (best-effort - continue cleanup even if this fails)
+        if is_loaded():
+            result = subprocess.run(
+                ["launchctl", "unload", str(plist_path)],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                warnings.append(f"launchctl unload failed: {result.stderr.strip()}")
 
-    messages = ["Service uninstalled."]
+        # Remove the plist file
+        try:
+            plist_path.unlink()
+            messages.append("Service uninstalled.")
+        except OSError as e:
+            warnings.append(f"Failed to remove plist: {e}")
 
-    # Remove the app bundle used for Full Disk Access
-    remove_app_bundle()
+        # Remove the app bundle used for Full Disk Access
+        remove_app_bundle()
 
-    # Uninstall tray if installed
-    if is_tray_installed():
-        tray_success, tray_msg = uninstall_tray()
-        if tray_success:
-            messages.append("Menu bar tray icon uninstalled.")
-        else:
-            messages.append(f"Warning: Tray uninstall failed: {tray_msg}")
+        # Uninstall tray if installed
+        if is_tray_installed():
+            tray_success, tray_msg = uninstall_tray()
+            if tray_success:
+                messages.append("Menu bar tray icon uninstalled.")
+            else:
+                warnings.append(f"Tray uninstall failed: {tray_msg}")
 
-    # Disable Tailscale serve to avoid leaving a dangling port
-    # This is a best-effort cleanup - we don't fail uninstall if this fails
-    if is_tailscale_available() and is_tailscale_serving():
-        disable_tailscale_serve()
+        # Disable Tailscale serve to avoid leaving a dangling port
+        # This is a best-effort cleanup - we don't fail uninstall if this fails
+        if is_tailscale_available() and is_tailscale_serving():
+            disable_tailscale_serve()
 
-    # Clear Tailscale config so it doesn't auto-enable on reinstall
-    update_config({"tailscale_serve_enabled": False})
+        # Clear Tailscale config so it doesn't auto-enable on reinstall
+        update_config({"tailscale_serve_enabled": False})
 
-    return True, " ".join(messages)
+        # Build final message
+        if not messages:
+            messages.append("Service uninstalled.")
+
+        if warnings:
+            messages.append("Warnings: " + "; ".join(warnings))
+            # Still return success since we did remove components
+            # User may need to manually clean up the warned items
+
+        return True, " ".join(messages)
 
 
 def get_status() -> dict:
@@ -589,12 +707,120 @@ def get_tailscale_serve_status() -> dict | None:
 
 # Global handle for the tailscale serve subprocess
 _tailscale_serve_proc: subprocess.Popen[bytes] | None = None
+_atexit_registered: bool = False
+
+
+def get_tailscale_pid_file() -> Path:
+    """Get the path to the tailscale serve PID file.
+
+    Uses ~/.local/state/iuselinux/ following XDG conventions for runtime state.
+    """
+    state_dir = Path.home() / ".local" / "state" / "iuselinux"
+    return state_dir / "tailscale_serve.pid"
+
+
+def _write_tailscale_pid(pid: int) -> None:
+    """Write the tailscale serve subprocess PID to the PID file."""
+    pid_file = get_tailscale_pid_file()
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(str(pid))
+
+
+def _read_tailscale_pid() -> int | None:
+    """Read the tailscale serve subprocess PID from the PID file.
+
+    Returns:
+        The PID if file exists and is valid, None otherwise
+    """
+    pid_file = get_tailscale_pid_file()
+    if not pid_file.exists():
+        return None
+    try:
+        return int(pid_file.read_text().strip())
+    except (ValueError, OSError):
+        return None
+
+
+def _remove_tailscale_pid_file() -> None:
+    """Remove the tailscale serve PID file if it exists."""
+    pid_file = get_tailscale_pid_file()
+    try:
+        pid_file.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _is_process_running(pid: int) -> bool:
+    """Check if a process with the given PID is running."""
+    try:
+        os.kill(pid, 0)  # Signal 0 just checks if process exists
+        return True
+    except OSError:
+        return False
+
+
+def _kill_orphan_tailscale_serve() -> bool:
+    """Kill any orphan tailscale serve process from a previous run.
+
+    Reads the PID file, checks if that process is still running,
+    and terminates it if so.
+
+    Returns:
+        True if an orphan was killed, False otherwise
+    """
+    pid = _read_tailscale_pid()
+    if pid is None:
+        return False
+
+    if not _is_process_running(pid):
+        # Stale PID file, just clean it up
+        _remove_tailscale_pid_file()
+        return False
+
+    # Kill the orphan process
+    try:
+        os.kill(pid, 15)  # SIGTERM
+        # Wait briefly for it to die
+        import time
+        for _ in range(10):  # Wait up to 1 second
+            time.sleep(0.1)
+            if not _is_process_running(pid):
+                break
+        else:
+            # Still running, force kill
+            os.kill(pid, 9)  # SIGKILL
+    except OSError:
+        pass
+
+    _remove_tailscale_pid_file()
+    return True
+
+
+def _cleanup_tailscale_serve_atexit() -> None:
+    """Cleanup function called at process exit to terminate tailscale serve."""
+    global _tailscale_serve_proc
+    if _tailscale_serve_proc is not None:
+        try:
+            if _tailscale_serve_proc.poll() is None:
+                _tailscale_serve_proc.terminate()
+                _tailscale_serve_proc.wait(timeout=2)
+        except Exception:
+            try:
+                _tailscale_serve_proc.kill()
+            except Exception:
+                pass
+    _remove_tailscale_pid_file()
 
 
 def is_tailscale_serving(port: int = DEFAULT_PORT) -> bool:
     """Check if tailscale is currently serving on the given port."""
-    # First check if our managed subprocess is running
+    # First check if our managed subprocess is running (in-process)
     if _tailscale_serve_proc is not None and _tailscale_serve_proc.poll() is None:
+        return True
+
+    # Check PID file for cross-process detection (e.g., CLI checking service's tailscale)
+    pid = _read_tailscale_pid()
+    if pid is not None and _is_process_running(pid):
         return True
 
     # Fall back to checking daemon config (for --bg mode or external config)
@@ -626,13 +852,21 @@ def enable_tailscale_serve(port: int = DEFAULT_PORT) -> tuple[bool, str]:
     the serve lifecycle to the iuselinux process - when iuselinux dies,
     the serve automatically stops because foreground mode is ephemeral.
 
+    Additionally:
+    - Kills any orphan tailscale serve from a previous crashed run
+    - Writes PID to file for cross-process control (CLI can kill service's tailscale)
+    - Registers atexit handler for graceful cleanup
+    - Uses process group so child dies with parent even on SIGKILL
+
     Args:
         port: The port to serve
 
     Returns:
         Tuple of (success, message)
     """
-    global _tailscale_serve_proc
+    global _tailscale_serve_proc, _atexit_registered
+    import atexit
+    import time
 
     if not is_tailscale_available():
         return False, "Tailscale CLI not found. Install Tailscale from https://tailscale.com/download"
@@ -640,28 +874,44 @@ def enable_tailscale_serve(port: int = DEFAULT_PORT) -> tuple[bool, str]:
     if not is_tailscale_connected():
         return False, "Tailscale is not connected. Run 'tailscale up' to connect."
 
-    # Terminate existing subprocess if any
+    # Kill any orphan from a previous crashed run
+    _kill_orphan_tailscale_serve()
+
+    # Terminate existing subprocess if any (in-process)
     if _tailscale_serve_proc is not None and _tailscale_serve_proc.poll() is None:
         _tailscale_serve_proc.terminate()
         try:
             _tailscale_serve_proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             _tailscale_serve_proc.kill()
+        _remove_tailscale_pid_file()
+
+    # Register atexit handler (only once)
+    if not _atexit_registered:
+        atexit.register(_cleanup_tailscale_serve_atexit)
+        _atexit_registered = True
 
     # Start foreground serve (no --bg = ephemeral, dies with process)
+    # Use start_new_session=True to create a new process group - this helps
+    # ensure the subprocess is properly terminated even if parent gets SIGKILL
     try:
         _tailscale_serve_proc = subprocess.Popen(
             ["tailscale", "serve", str(port)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
+            start_new_session=True,
         )
+        # Write PID file for cross-process control
+        _write_tailscale_pid(_tailscale_serve_proc.pid)
+
         # Brief delay to check for immediate failure
-        import time
         time.sleep(0.5)
         if _tailscale_serve_proc.poll() is not None:
             stderr = _tailscale_serve_proc.stderr.read().decode() if _tailscale_serve_proc.stderr else ""
+            _remove_tailscale_pid_file()
             return False, f"Failed to start tailscale serve: {stderr}"
     except Exception as e:
+        _remove_tailscale_pid_file()
         return False, f"Failed to start tailscale serve: {e}"
 
     return True, f"Tailscale serve enabled for port {port}"
@@ -670,13 +920,17 @@ def enable_tailscale_serve(port: int = DEFAULT_PORT) -> tuple[bool, str]:
 def disable_tailscale_serve() -> tuple[bool, str]:
     """Disable tailscale serve.
 
-    Terminates the tailscale serve subprocess if we started one.
+    Terminates the tailscale serve subprocess. Works both in-process (if we
+    started it) and cross-process (CLI disabling service's tailscale) by
+    reading the PID file.
 
     Returns:
         Tuple of (success, message)
     """
     global _tailscale_serve_proc
+    killed = False
 
+    # First try in-process termination (if we're the process that started it)
     if _tailscale_serve_proc is not None:
         if _tailscale_serve_proc.poll() is None:
             _tailscale_serve_proc.terminate()
@@ -684,8 +938,29 @@ def disable_tailscale_serve() -> tuple[bool, str]:
                 _tailscale_serve_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 _tailscale_serve_proc.kill()
+            killed = True
         _tailscale_serve_proc = None
-        return True, "Tailscale serve disabled"
+        _remove_tailscale_pid_file()
+
+    # Also try cross-process termination via PID file (e.g., CLI disabling service's tailscale)
+    if not killed:
+        pid = _read_tailscale_pid()
+        if pid is not None and _is_process_running(pid):
+            try:
+                os.kill(pid, 15)  # SIGTERM
+                # Wait briefly for it to die
+                import time
+                for _ in range(50):  # Wait up to 5 seconds
+                    time.sleep(0.1)
+                    if not _is_process_running(pid):
+                        break
+                else:
+                    # Still running, force kill
+                    os.kill(pid, 9)  # SIGKILL
+                killed = True
+            except OSError:
+                pass
+        _remove_tailscale_pid_file()
 
     return True, "Tailscale serve disabled"
 

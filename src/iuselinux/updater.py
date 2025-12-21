@@ -49,6 +49,32 @@ def compare_versions(current: str, latest: str) -> bool:
         return False
 
 
+def get_version_change_type(current: str, latest: str) -> str | None:
+    """Determine the type of version change: 'major', 'minor', 'patch', or None if no update.
+
+    Uses semantic versioning: MAJOR.MINOR.PATCH
+    - major: Breaking changes (first number changed)
+    - minor: New features, backwards compatible (second number changed)
+    - patch: Bug fixes only (third number changed)
+    """
+    try:
+        curr_ver = Version(current)
+        latest_ver = Version(latest)
+
+        if latest_ver <= curr_ver:
+            return None
+
+        # Compare major.minor.patch
+        if latest_ver.major > curr_ver.major:
+            return "major"
+        elif latest_ver.minor > curr_ver.minor:
+            return "minor"
+        else:
+            return "patch"
+    except InvalidVersion:
+        return None
+
+
 def get_update_status(force_check: bool = False) -> dict[str, Any]:
     """Get current update status, optionally forcing a fresh check."""
     global _update_cache, _last_check
@@ -62,14 +88,18 @@ def get_update_status(force_check: bool = False) -> dict[str, Any]:
 
     latest = fetch_pypi_version()
     update_available = False
+    change_type = None
 
     if latest:
         update_available = compare_versions(__version__, latest)
+        if update_available:
+            change_type = get_version_change_type(__version__, latest)
 
     _update_cache = {
         "current_version": __version__,
         "latest_version": latest,
         "update_available": update_available,
+        "change_type": change_type,  # 'major', 'minor', 'patch', or None
         "last_check": datetime.now(timezone.utc).isoformat(),
         "error": None if latest else "Failed to check for updates",
     }

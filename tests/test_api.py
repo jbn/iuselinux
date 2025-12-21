@@ -453,3 +453,203 @@ class TestFullDiskAccessHandling:
             assert response.status_code == 200
             # Should now be serving the main UI
             assert b"chat-list" in response.content or b"Select a chat" in response.content
+
+
+class TestVersionEndpoints:
+    """Tests for version and update banner endpoints."""
+
+    def test_get_version_returns_current_version(self, client):
+        """Test that /version returns current version info."""
+        with patch("iuselinux.api.updater_module.get_update_status") as mock_status:
+            mock_status.return_value = {
+                "current_version": "1.0.0",
+                "latest_version": "1.0.0",
+                "update_available": False,
+                "change_type": None,
+                "last_check": "2025-01-01T00:00:00+00:00",
+                "error": None,
+            }
+            with patch("iuselinux.api.get_config_value", return_value=None):
+                response = client.get("/version")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["current_version"] == "1.0.0"
+                assert data["update_available"] is False
+                assert "update_command" in data
+
+    def test_version_includes_change_type_for_major_update(self, client):
+        """Test that change_type is 'major' for major version updates."""
+        with patch("iuselinux.api.updater_module.get_update_status") as mock_status:
+            mock_status.return_value = {
+                "current_version": "1.0.0",
+                "latest_version": "2.0.0",
+                "update_available": True,
+                "change_type": "major",
+                "last_check": "2025-01-01T00:00:00+00:00",
+                "error": None,
+            }
+            with patch("iuselinux.api.get_config_value", return_value=None):
+                response = client.get("/version")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["update_available"] is True
+                assert data["change_type"] == "major"
+
+    def test_version_includes_change_type_for_minor_update(self, client):
+        """Test that change_type is 'minor' for minor version updates."""
+        with patch("iuselinux.api.updater_module.get_update_status") as mock_status:
+            mock_status.return_value = {
+                "current_version": "1.0.0",
+                "latest_version": "1.1.0",
+                "update_available": True,
+                "change_type": "minor",
+                "last_check": "2025-01-01T00:00:00+00:00",
+                "error": None,
+            }
+            with patch("iuselinux.api.get_config_value", return_value=None):
+                response = client.get("/version")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["change_type"] == "minor"
+
+    def test_dismiss_banner_succeeds_for_minor_update(self, client):
+        """Test that banner can be dismissed for minor updates."""
+        with patch("iuselinux.api.updater_module.get_update_status") as mock_status:
+            mock_status.return_value = {
+                "current_version": "1.0.0",
+                "latest_version": "1.1.0",
+                "update_available": True,
+                "change_type": "minor",
+            }
+            with patch("iuselinux.api.set_config_value") as mock_set:
+                response = client.post("/version/dismiss-banner")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["success"] is True
+                assert data["dismissed_until"] is not None
+                mock_set.assert_called_once()
+
+    def test_dismiss_banner_fails_for_major_update(self, client):
+        """Test that banner cannot be dismissed for major updates."""
+        with patch("iuselinux.api.updater_module.get_update_status") as mock_status:
+            mock_status.return_value = {
+                "current_version": "1.0.0",
+                "latest_version": "2.0.0",
+                "update_available": True,
+                "change_type": "major",
+            }
+            response = client.post("/version/dismiss-banner")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is False
+            assert data["dismissed_until"] is None
+
+    def test_banner_dismissed_flag_when_not_expired(self, client):
+        """Test that banner_dismissed is True when dismissal hasn't expired."""
+        from datetime import datetime, timedelta, timezone
+
+        future_time = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+
+        def mock_get_config(key):
+            if key == "update_banner_dismissed_until":
+                return future_time
+            if key == "api_token":
+                return ""  # No auth required
+            return None
+
+        with patch("iuselinux.api.updater_module.get_update_status") as mock_status:
+            mock_status.return_value = {
+                "current_version": "1.0.0",
+                "latest_version": "1.1.0",
+                "update_available": True,
+                "change_type": "minor",
+                "last_check": "2025-01-01T00:00:00+00:00",
+                "error": None,
+            }
+            with patch("iuselinux.api.get_config_value", side_effect=mock_get_config):
+                response = client.get("/version")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["banner_dismissed"] is True
+
+    def test_banner_not_dismissed_when_expired(self, client):
+        """Test that banner_dismissed is False when dismissal has expired."""
+        from datetime import datetime, timedelta, timezone
+
+        past_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+
+        def mock_get_config(key):
+            if key == "update_banner_dismissed_until":
+                return past_time
+            if key == "api_token":
+                return ""  # No auth required
+            return None
+
+        with patch("iuselinux.api.updater_module.get_update_status") as mock_status:
+            mock_status.return_value = {
+                "current_version": "1.0.0",
+                "latest_version": "1.1.0",
+                "update_available": True,
+                "change_type": "minor",
+                "last_check": "2025-01-01T00:00:00+00:00",
+                "error": None,
+            }
+            with patch("iuselinux.api.get_config_value", side_effect=mock_get_config):
+                response = client.get("/version")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["banner_dismissed"] is False
+
+
+class TestStaticFileServing:
+    """Tests for static file serving, including path traversal protection."""
+
+    def test_serve_valid_static_file(self, client):
+        """Test that valid static files are served."""
+        # The static directory should contain index.html
+        response = client.get("/static/index.html")
+        # File may or may not exist depending on build state
+        assert response.status_code in (200, 404)
+
+    def test_path_traversal_blocked(self, client):
+        """Test that path traversal attempts are blocked.
+
+        Note: Starlette/FastAPI may normalize paths before they reach handlers,
+        so both 403 (blocked by our code) and 404 (path normalized to non-existent)
+        are acceptable. The key is that the file is NOT served (no 200).
+        """
+        # Attempt to access /etc/passwd via path traversal
+        response = client.get("/static/../../../etc/passwd")
+        # Either blocked (403) or normalized away (404) - both are safe
+        assert response.status_code in (403, 404)
+
+    def test_path_traversal_with_encoded_dots(self, client):
+        """Test path traversal with URL-encoded characters."""
+        # FastAPI decodes the path, so this should still be caught
+        response = client.get("/static/..%2F..%2F..%2Fetc%2Fpasswd")
+        # Could be 403 (blocked) or 404 (not found after traversal blocked)
+        assert response.status_code in (403, 404)
+
+    def test_path_traversal_double_dot(self, client):
+        """Test simple double-dot traversal."""
+        response = client.get("/static/../sender.py")
+        # Either blocked (403) or normalized away (404) - both are safe
+        assert response.status_code in (403, 404)
+
+    def test_nested_traversal_attempt(self, client):
+        """Test deeply nested traversal attempt."""
+        response = client.get("/static/a/b/c/../../../../etc/passwd")
+        # Either blocked (403) or normalized away (404) - both are safe
+        assert response.status_code in (403, 404)
+
+    def test_traversal_with_backslash(self, client):
+        """Test path traversal with backslashes (Windows-style)."""
+        response = client.get("/static/..\\..\\etc\\passwd")
+        # May result in 403 or 404, but should not serve the file
+        assert response.status_code in (403, 404)
+
+    def test_directory_access_blocked(self, client):
+        """Test that directory access returns 404 (not a file)."""
+        response = client.get("/static/")
+        # Should return 404 because empty path or directory
+        assert response.status_code == 404

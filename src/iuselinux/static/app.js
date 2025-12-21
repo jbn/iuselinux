@@ -1506,22 +1506,23 @@ async function updateHealthStatus() {
 }
 
 // Version and update management
+// NOTE: Auto-update has been disabled for security. Updates are shown via a banner.
+
 async function fetchVersionStatus() {
     const versionEl = document.getElementById('app-version');
     const statusEl = document.getElementById('update-status');
-    const installBtn = document.getElementById('install-update-btn');
-    const messageEl = document.getElementById('update-message');
 
     try {
         const res = await apiFetch('/version');
         const data = await res.json();
 
-        // Update version display
+        // Update version display in About tab
         if (versionEl) {
             versionEl.textContent = 'v' + data.current_version;
         }
 
         updateVersionUI(data);
+        updateBanner(data);
     } catch (err) {
         console.error('Failed to fetch version:', err);
         if (versionEl) versionEl.textContent = 'unknown';
@@ -1534,25 +1535,65 @@ async function fetchVersionStatus() {
 
 function updateVersionUI(data) {
     const statusEl = document.getElementById('update-status');
-    const installBtn = document.getElementById('install-update-btn');
-    const messageEl = document.getElementById('update-message');
+    const commandSection = document.getElementById('update-command-section');
+    const commandEl = document.getElementById('about-update-command');
 
     if (!statusEl) return;
 
     if (data.error) {
         statusEl.textContent = 'Check failed';
         statusEl.className = 'status-value warning';
+        if (commandSection) commandSection.classList.add('hidden');
     } else if (data.update_available) {
         statusEl.textContent = 'Update available (v' + data.latest_version + ')';
         statusEl.className = 'status-value warning';
-        if (installBtn) installBtn.classList.remove('hidden');
+        // Show the update command
+        if (commandSection) commandSection.classList.remove('hidden');
+        if (commandEl) commandEl.textContent = data.update_command || 'uv tool upgrade iuselinux';
     } else {
         statusEl.textContent = 'Up to date';
         statusEl.className = 'status-value ok';
-        if (installBtn) installBtn.classList.add('hidden');
+        if (commandSection) commandSection.classList.add('hidden');
+    }
+}
+
+function updateBanner(data) {
+    const banner = document.getElementById('update-banner');
+    const versionEl = document.getElementById('banner-version');
+    const commandEl = document.getElementById('banner-command');
+
+    if (!banner) return;
+
+    // Hide banner if no update or if dismissed (for minor/patch only)
+    if (!data.update_available) {
+        banner.classList.add('hidden');
+        return;
     }
 
-    if (messageEl) messageEl.classList.add('hidden');
+    // For minor/patch updates, check if dismissed
+    if (data.change_type !== 'major' && data.banner_dismissed) {
+        banner.classList.add('hidden');
+        return;
+    }
+
+    // Show banner
+    banner.classList.remove('hidden');
+
+    // Set banner style based on change type
+    banner.classList.remove('major', 'minor');
+    if (data.change_type === 'major') {
+        banner.classList.add('major');
+    } else {
+        banner.classList.add('minor');
+    }
+
+    // Update content
+    if (versionEl) {
+        versionEl.textContent = 'v' + data.latest_version;
+    }
+    if (commandEl) {
+        commandEl.textContent = data.update_command || 'uv tool upgrade iuselinux';
+    }
 }
 
 async function checkForUpdates() {
@@ -1566,6 +1607,7 @@ async function checkForUpdates() {
         const res = await apiFetch('/version/check', { method: 'POST' });
         const data = await res.json();
         updateVersionUI(data);
+        updateBanner(data);
     } catch (err) {
         console.error('Failed to check for updates:', err);
         if (statusEl) {
@@ -1577,53 +1619,29 @@ async function checkForUpdates() {
     }
 }
 
-async function installUpdate() {
-    const statusEl = document.getElementById('update-status');
-    const btn = document.getElementById('install-update-btn');
-    const messageEl = document.getElementById('update-message');
-
-    if (statusEl) statusEl.textContent = 'Installing...';
-    if (btn) btn.disabled = true;
+async function dismissUpdateBanner() {
+    const banner = document.getElementById('update-banner');
 
     try {
-        const res = await apiFetch('/version/update', { method: 'POST' });
+        const res = await apiFetch('/version/dismiss-banner', { method: 'POST' });
         const data = await res.json();
 
         if (data.success) {
-            if (statusEl) {
-                statusEl.textContent = 'Restarting...';
-                statusEl.className = 'status-value ok';
-            }
-            if (messageEl) {
-                messageEl.textContent = 'Update installed. Server is restarting...';
-                messageEl.classList.remove('hidden');
-            }
-            // Reload page after a delay to give server time to restart
-            setTimeout(() => window.location.reload(), 5000);
-        } else {
-            if (statusEl) {
-                statusEl.textContent = 'Update failed';
-                statusEl.className = 'status-value error';
-            }
-            if (messageEl) {
-                messageEl.textContent = data.message;
-                messageEl.classList.remove('hidden');
-            }
+            if (banner) banner.classList.add('hidden');
         }
     } catch (err) {
-        console.error('Failed to install update:', err);
-        if (statusEl) {
-            statusEl.textContent = 'Update failed';
-            statusEl.className = 'status-value error';
-        }
-    } finally {
-        if (btn) btn.disabled = false;
+        console.error('Failed to dismiss banner:', err);
     }
 }
 
 // Update button event listeners
 document.getElementById('check-updates-btn')?.addEventListener('click', checkForUpdates);
-document.getElementById('install-update-btn')?.addEventListener('click', installUpdate);
+document.getElementById('banner-dismiss')?.addEventListener('click', dismissUpdateBanner);
+
+// Periodically check for updates while page is open (every 6 hours)
+// The server-side caches results for 24 hours, so this just ensures
+// we pick up updates even if the page stays open for days
+setInterval(fetchVersionStatus, 6 * 60 * 60 * 1000);
 
 function closeSettings() {
     settingsModal.classList.add('hidden');
@@ -1637,7 +1655,6 @@ async function saveSettings() {
     const settingThumbnailCacheTtl = document.getElementById('setting-thumbnail-cache-ttl');
     const settingThumbnailTimestamp = document.getElementById('setting-thumbnail-timestamp');
     const settingWebsocketPollInterval = document.getElementById('setting-websocket-poll-interval');
-    const settingAutoUpdate = document.getElementById('setting-auto-update');
 
     const updates = {
         prevent_sleep: settingPreventSleep.checked,
@@ -1648,7 +1665,6 @@ async function saveSettings() {
         notification_sound_enabled: settingNotificationSound ? settingNotificationSound.checked : true,
         use_custom_notification_sound: settingUseCustomSound ? settingUseCustomSound.checked : false,
         theme: settingTheme ? settingTheme.value : 'auto',
-        auto_update_enabled: settingAutoUpdate ? settingAutoUpdate.checked : true,
         // Advanced settings
         thumbnail_cache_ttl: settingThumbnailCacheTtl ? parseInt(settingThumbnailCacheTtl.value, 10) || 86400 : 86400,
         thumbnail_timestamp: settingThumbnailTimestamp ? parseFloat(settingThumbnailTimestamp.value) || 3.0 : 3.0,
@@ -3358,4 +3374,6 @@ selectChat = function(item) {
     await loadConfig();
     loadChats();
     connectWebSocket();  // Single WebSocket for all messages
+    // Check for updates on startup and show banner if available
+    fetchVersionStatus();
 })();

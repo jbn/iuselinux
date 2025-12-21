@@ -2206,3 +2206,130 @@ body.resizing-sidebar {
 .auth-error.hidden {
     display: none;
 }
+
+/* Update notification banner */
+.update-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10000;
+    padding: 10px 16px;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.update-banner.hidden {
+    display: none;
+}
+
+/* Minor/patch updates - beige/warning color, dismissable */
+.update-banner.minor {
+    background: #fff3cd;
+    border-bottom: 1px solid #ffc107;
+    color: #856404;
+}
+
+/* Major updates - red/critical color, not dismissable */
+.update-banner.major {
+    background: #f8d7da;
+    border-bottom: 1px solid #dc3545;
+    color: #721c24;
+}
+
+.update-banner-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.update-banner-icon {
+    font-size: 16px;
+}
+
+.update-banner-text {
+    flex-shrink: 0;
+}
+
+.update-banner-command {
+    background: rgba(0, 0, 0, 0.1);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 13px;
+    user-select: all;
+    cursor: text;
+}
+
+.update-banner-dismiss {
+    background: transparent;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0 4px;
+    opacity: 0.7;
+    color: inherit;
+    line-height: 1;
+}
+
+.update-banner-dismiss:hover {
+    opacity: 1;
+}
+
+/* Hide dismiss button for major updates */
+.update-banner.major .update-banner-dismiss {
+    display: none;
+}
+
+/* Push container down when banner is visible */
+body:has(.update-banner:not(.hidden)) .container {
+    margin-top: 44px;
+}
+
+/* Update command section in About tab */
+.update-command-section {
+    margin: 12px 0;
+}
+
+.update-command-section.hidden {
+    display: none;
+}
+
+/* Dark mode adjustments for update banner */
+@media (prefers-color-scheme: dark) {
+    .update-banner.minor {
+        background: #332701;
+        border-bottom-color: #665200;
+        color: #ffc107;
+    }
+
+    .update-banner.major {
+        background: #2c0b0e;
+        border-bottom-color: #721c24;
+        color: #f5c6cb;
+    }
+
+    .update-banner-command {
+        background: rgba(255, 255, 255, 0.1);
+    }
+}
+
+[data-theme="dark"] .update-banner.minor {
+    background: #332701;
+    border-bottom-color: #665200;
+    color: #ffc107;
+}
+
+[data-theme="dark"] .update-banner.major {
+    background: #2c0b0e;
+    border-bottom-color: #721c24;
+    color: #f5c6cb;
+}
+
+[data-theme="dark"] .update-banner-command {
+    background: rgba(255, 255, 255, 0.1);
+}

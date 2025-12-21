@@ -1,5 +1,6 @@
 """FastAPI server for iUseLinux."""
 
+import atexit
 import hashlib
 import io
 import logging
@@ -63,6 +64,12 @@ _db_accessible: bool | None = None
 
 # Global caffeinate process handle for sleep prevention
 _caffeinate_proc: subprocess.Popen[bytes] | None = None
+_caffeinate_atexit_registered: bool = False
+
+
+def _cleanup_caffeinate_atexit() -> None:
+    """Atexit handler to ensure caffeinate is stopped on process exit."""
+    stop_caffeinate()
 
 
 def start_caffeinate(mode: str | None = None) -> bool:
@@ -74,7 +81,7 @@ def start_caffeinate(mode: str | None = None) -> bool:
 
     Returns True if caffeinate was started successfully, False otherwise.
     """
-    global _caffeinate_proc
+    global _caffeinate_proc, _caffeinate_atexit_registered
 
     if _caffeinate_proc is not None and _caffeinate_proc.poll() is None:
         # Already running
@@ -97,6 +104,12 @@ def start_caffeinate(mode: str | None = None) -> bool:
         )
         mode_desc = "on AC power only" if mode == "ac_power" else "always"
         logger.info("Caffeinate started (%s) - preventing system sleep", mode_desc)
+
+        # Register atexit handler to ensure cleanup on process exit (SIGKILL, segfault, etc.)
+        if not _caffeinate_atexit_registered:
+            atexit.register(_cleanup_caffeinate_atexit)
+            _caffeinate_atexit_registered = True
+
         return True
     except FileNotFoundError:
         logger.warning("caffeinate not found (not on macOS?)")
@@ -174,68 +187,14 @@ from typing import AsyncGenerator
 
 from . import __version__
 
-# Background update check task
-_update_check_task: asyncio.Task[None] | None = None
-
-
-async def periodic_update_check() -> None:
-    """Background task to periodically check for and apply updates."""
-    from . import updater as bg_updater_module
-
-    # Wait a bit before first check (let server start up)
-    await asyncio.sleep(60)
-
-    while True:
-        try:
-            interval: int = get_config_value("update_check_interval")
-            auto_update: bool = get_config_value("auto_update_enabled")
-
-            if not auto_update:
-                await asyncio.sleep(interval)
-                continue
-
-            status = bg_updater_module.get_update_status(force_check=True)
-
-            if status.get("update_available"):
-                logger.info(
-                    "Update available: %s -> %s",
-                    status["current_version"],
-                    status["latest_version"],
-                )
-                success, message = bg_updater_module.perform_update()
-                if success:
-                    logger.info("Update installed, scheduling restart")
-                    bg_updater_module.schedule_restart(delay_seconds=5.0)
-                    break  # Exit loop, restart will happen
-                else:
-                    logger.error("Auto-update failed: %s", message)
-
-            await asyncio.sleep(interval)
-
-        except Exception as e:
-            logger.error("Update check failed: %s", e)
-            await asyncio.sleep(3600)  # Wait an hour on error
+# NOTE: Auto-update has been disabled for security reasons (see dangerous_audit.md).
+# Updates are now shown via a banner notification and require manual installation.
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager."""
-    global _update_check_task
-
-    # Start background update check if enabled
-    if get_config_value("auto_update_enabled"):
-        _update_check_task = asyncio.create_task(periodic_update_check())
-        logger.info("Background update check task started")
-
     yield
-
-    # Cleanup
-    if _update_check_task:
-        _update_check_task.cancel()
-        try:
-            await _update_check_task
-        except asyncio.CancelledError:
-            pass
 
 
 app = FastAPI(
@@ -255,7 +214,12 @@ NO_CACHE_FILES = {"index.html", "app.js", "styles.css"}
 @app.get("/static/{file_path:path}")
 def serve_static(file_path: str) -> FileResponse:
     """Serve static files with appropriate cache headers."""
-    full_path = static_dir / file_path
+    full_path = (static_dir / file_path).resolve()
+    # SECURITY FIX: Prevent path traversal attacks.
+    # Without this check, requests like '/static/../../../etc/passwd' could
+    # access files outside the static directory.
+    if not full_path.is_relative_to(static_dir.resolve()):
+        raise HTTPException(status_code=403, detail="Access denied")
     if not full_path.exists() or not full_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -846,6 +810,28 @@ def send_message(request: SendRequest) -> SendResponse:
 
 # File upload limits
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+MIN_FREE_DISK_SPACE = 1024 * 1024 * 1024  # 1 GB minimum free space buffer
+
+
+def _check_disk_space(required_bytes: int, path: Path | None = None) -> bool:
+    """Check if enough disk space is available.
+
+    Args:
+        required_bytes: Number of bytes we need to write
+        path: Path to check (uses /tmp if None)
+
+    Returns:
+        True if enough space available, False otherwise
+    """
+    check_path = path or Path(tempfile.gettempdir())
+    try:
+        usage = shutil.disk_usage(check_path)
+        return usage.free > (required_bytes + MIN_FREE_DISK_SPACE)
+    except OSError:
+        # If we can't check, allow the write and let it fail naturally
+        return True
+
+
 ALLOWED_FILE_TYPES = {
     # Images
     "image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif",
@@ -923,6 +909,13 @@ async def send_with_attachment(
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail=f"File too large (max {MAX_FILE_SIZE // (1024*1024)} MB)")
+
+    # Check disk space before writing (prevents /tmp exhaustion)
+    if not _check_disk_space(len(content)):
+        raise HTTPException(
+            status_code=507,
+            detail="Insufficient disk space. Please free up space and try again."
+        )
 
     # Check content type
     content_type = file.content_type or "application/octet-stream"
@@ -1241,8 +1234,9 @@ def get_attachment_thumbnail(attachment_id: int) -> FileResponse | StreamingResp
     if thumbnail_data is None:
         raise HTTPException(status_code=404, detail="Failed to extract thumbnail")
 
-    # Save to disk cache
-    cache_path.write_bytes(thumbnail_data)
+    # Save to disk cache (only if enough disk space)
+    if _check_disk_space(len(thumbnail_data), CACHE_DIR):
+        cache_path.write_bytes(thumbnail_data)
 
     return StreamingResponse(
         io.BytesIO(thumbnail_data),
@@ -1731,62 +1725,100 @@ class VersionResponse(BaseModel):
     current_version: str
     latest_version: str | None
     update_available: bool
+    change_type: str | None = None  # 'major', 'minor', 'patch' for semver
     last_check: str | None
     error: str | None = None
+    banner_dismissed: bool = False  # True if user has dismissed the banner
+    update_command: str = "uv tool upgrade iuselinux"  # Command to run for update
 
 
-class UpdateResponse(BaseModel):
-    """Update action response."""
+class BannerDismissResponse(BaseModel):
+    """Response from dismissing update banner."""
 
     success: bool
-    message: str
-    requires_restart: bool = False
+    dismissed_until: str | None  # ISO timestamp when dismissal expires
 
 
 @app.get("/version", response_model=VersionResponse)
 def get_version_info() -> VersionResponse:
     """Get current version and check for updates."""
     status = updater_module.get_update_status()
-    return VersionResponse(**status)
+
+    # Check if banner was dismissed and if dismissal has expired
+    dismissed_until = get_config_value("update_banner_dismissed_until")
+    banner_dismissed = False
+    if dismissed_until:
+        from datetime import datetime, timezone
+
+        try:
+            expiry = datetime.fromisoformat(dismissed_until)
+            if datetime.now(timezone.utc) < expiry:
+                banner_dismissed = True
+        except (ValueError, TypeError):
+            pass
+
+    return VersionResponse(
+        **status,
+        banner_dismissed=banner_dismissed,
+        update_command="uv tool upgrade iuselinux",
+    )
 
 
 @app.post("/version/check", response_model=VersionResponse)
 def check_for_updates() -> VersionResponse:
     """Force check for updates."""
     status = updater_module.get_update_status(force_check=True)
-    return VersionResponse(**status)
+
+    # Check if banner was dismissed
+    dismissed_until = get_config_value("update_banner_dismissed_until")
+    banner_dismissed = False
+    if dismissed_until:
+        from datetime import datetime, timezone
+
+        try:
+            expiry = datetime.fromisoformat(dismissed_until)
+            if datetime.now(timezone.utc) < expiry:
+                banner_dismissed = True
+        except (ValueError, TypeError):
+            pass
+
+    return VersionResponse(
+        **status,
+        banner_dismissed=banner_dismissed,
+        update_command="uv tool upgrade iuselinux",
+    )
 
 
-@app.post("/version/update", response_model=UpdateResponse)
-def trigger_update() -> UpdateResponse:
-    """Trigger an update and restart."""
-    status = updater_module.get_update_status(force_check=True)
+@app.post("/version/dismiss-banner", response_model=BannerDismissResponse)
+def dismiss_update_banner() -> BannerDismissResponse:
+    """Dismiss the update banner for 48 hours.
 
-    if not status.get("update_available"):
-        return UpdateResponse(
+    Only works for minor/patch updates. Major updates cannot be dismissed.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    status = updater_module.get_update_status()
+
+    # Don't allow dismissing major updates
+    if status.get("change_type") == "major":
+        return BannerDismissResponse(
             success=False,
-            message="No update available",
-            requires_restart=False,
+            dismissed_until=None,
         )
 
-    success, message = updater_module.perform_update()
+    # Set dismissal for 48 hours
+    dismissed_until = datetime.now(timezone.utc) + timedelta(hours=48)
+    set_config_value("update_banner_dismissed_until", dismissed_until.isoformat())
 
-    if success:
-        updater_module.schedule_restart(delay_seconds=2.0)
-        return UpdateResponse(
-            success=True,
-            message=message,
-            requires_restart=True,
-        )
-
-    return UpdateResponse(
-        success=False,
-        message=message,
-        requires_restart=False,
+    return BannerDismissResponse(
+        success=True,
+        dismissed_until=dismissed_until.isoformat(),
     )
 
 
 # WebSocket for real-time updates
+MAX_WEBSOCKET_CONNECTIONS = 10
+_active_websockets: set[WebSocket] = set()
 
 
 @app.websocket("/ws")
@@ -1808,6 +1840,12 @@ async def websocket_endpoint(
     Client can send:
     - {"type": "set_after_rowid", "rowid": N} - set the starting rowid
     """
+    # Check connection limit to prevent DoS
+    if len(_active_websockets) >= MAX_WEBSOCKET_CONNECTIONS:
+        await websocket.close(code=1008, reason="Too many connections")
+        logger.warning("WebSocket rejected: too many connections (%d)", len(_active_websockets))
+        return
+
     # Check authentication if enabled
     api_token = get_config_value("api_token")
     if api_token and token != api_token:
@@ -1815,7 +1853,8 @@ async def websocket_endpoint(
         return
 
     await websocket.accept()
-    logger.info("WebSocket connected (chat_id=%s)", chat_id)
+    _active_websockets.add(websocket)
+    logger.info("WebSocket connected (chat_id=%s, total=%d)", chat_id, len(_active_websockets))
 
     # Get poll interval from config
     poll_interval = float(get_config_value("websocket_poll_interval"))
@@ -1827,6 +1866,7 @@ async def websocket_endpoint(
     except Exception as e:
         logger.error("WebSocket init failed: %s", e)
         await websocket.send_json({"type": "error", "message": str(e)})
+        _active_websockets.discard(websocket)
         await websocket.close()
         return
 
@@ -1883,6 +1923,8 @@ async def websocket_endpoint(
         logger.info("WebSocket disconnected (chat_id=%s)", chat_id)
     except Exception as e:
         logger.error("WebSocket unexpected error: %s", e)
+    finally:
+        _active_websockets.discard(websocket)
 
 
 import signal

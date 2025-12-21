@@ -12,6 +12,17 @@
     <style id="custom-css"></style>
 </head>
 <body>
+    <!-- Update notification banner - shown at top of page when update is available -->
+    <div id="update-banner" class="update-banner hidden">
+        <div class="update-banner-content">
+            <span class="update-banner-icon">⚠</span>
+            <span class="update-banner-text">
+                Update available: <span id="banner-version"></span>
+            </span>
+            <code class="update-banner-command" id="banner-command"></code>
+            <button type="button" id="banner-dismiss" class="update-banner-dismiss" title="Dismiss for 48 hours">&times;</button>
+        </div>
+    </div>
     <div class="container">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -149,13 +160,6 @@
                         <label class="setting-label-block">API Token</label>
                         <p class="setting-description">Set a token to require authentication for API access. Leave empty to disable.</p>
                         <input type="password" id="setting-api-token" placeholder="Enter token to enable auth">
-                    </div>
-                    <div class="setting-group">
-                        <label class="setting-label">
-                            <input type="checkbox" id="setting-auto-update" checked>
-                            <span>Auto-Update</span>
-                        </label>
-                        <p class="setting-description">Automatically install updates when available</p>
                     </div>
                 </div>
                 <!-- Service Tab -->
@@ -300,9 +304,11 @@ ssh -L 1960:localhost:1960 user@your-mac-ip</code></pre>
                         </div>
                         <div class="update-controls">
                             <button type="button" id="check-updates-btn" class="btn-secondary btn-small">Check for Updates</button>
-                            <button type="button" id="install-update-btn" class="btn-primary btn-small hidden">Install Update</button>
                         </div>
-                        <p id="update-message" class="update-message hidden"></p>
+                        <div id="update-command-section" class="update-command-section hidden">
+                            <p class="setting-description">To update, run:</p>
+                            <pre class="install-code"><code id="about-update-command">uv tool upgrade iuselinux</code></pre>
+                        </div>
                         <div class="setting-divider"></div>
                         <h3>System Status</h3>
                         <div class="about-status">

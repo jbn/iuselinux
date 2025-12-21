@@ -16,7 +16,11 @@ clean:
 	rm -rf dist/
 
 remove-install:
+	-launchctl unload ~/Library/LaunchAgents/com.iuselinux.server.plist 2>/dev/null
+	-launchctl unload ~/Library/LaunchAgents/com.iuselinux.tray.plist 2>/dev/null
 	-uvx iuselinux service uninstall
+	rm -f ~/Library/LaunchAgents/com.iuselinux.server.plist
+	rm -f ~/Library/LaunchAgents/com.iuselinux.tray.plist
 	rm -rf ~/.local/share/uv/tools/iuselinux
 	rm -f ~/.local/bin/iuselinux
 	rm -rf ~/Library/Application\ Support/iuselinux/
