@@ -29,4 +29,4 @@ remove-install:
 
 reset-install: remove-install
 	uv tool install --force -e .
-	uvx iuselinux service install --force
+	iuselinux service install --force

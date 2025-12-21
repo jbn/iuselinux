@@ -1536,7 +1536,6 @@ async function fetchVersionStatus() {
 function updateVersionUI(data) {
     const statusEl = document.getElementById('update-status');
     const commandSection = document.getElementById('update-command-section');
-    const commandEl = document.getElementById('about-update-command');
 
     if (!statusEl) return;
 
@@ -1547,9 +1546,8 @@ function updateVersionUI(data) {
     } else if (data.update_available) {
         statusEl.textContent = 'Update available (v' + data.latest_version + ')';
         statusEl.className = 'status-value warning';
-        // Show the update command
+        // Show the update command section (static content shows both uvx and uv tool upgrade)
         if (commandSection) commandSection.classList.remove('hidden');
-        if (commandEl) commandEl.textContent = data.update_command || 'uv tool upgrade iuselinux';
     } else {
         statusEl.textContent = 'Up to date';
         statusEl.className = 'status-value ok';
@@ -1592,7 +1590,8 @@ function updateBanner(data) {
         versionEl.textContent = 'v' + data.latest_version;
     }
     if (commandEl) {
-        commandEl.textContent = data.update_command || 'uv tool upgrade iuselinux';
+        // Show primary upgrade command; see Settings > About for full options
+        commandEl.textContent = 'uv tool upgrade iuselinux';
     }
 }
 
