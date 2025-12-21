@@ -224,12 +224,27 @@
                 <!-- Install Tab -->
                 <div class="settings-tab-content" id="tab-install">
                     <div class="setting-group">
-                        <h3>Quick Start</h3>
-                        <p class="setting-description">Run iuselinux directly with uvx (no installation required):</p>
+                        <h3>Quick Start (Ephemeral)</h3>
+                        <p class="setting-description">Run iuselinux directly with uvx (downloads to a temporary environment):</p>
                         <pre class="install-code"><code>uvx iuselinux</code></pre>
                         <p class="setting-description">This starts the server on <code>localhost:1960</code>. Options:</p>
                         <pre class="install-code"><code>uvx iuselinux --host 0.0.0.0 --port 8000
 uvx iuselinux --api-token SECRET</code></pre>
+                        <p class="setting-hint">To force the latest version: <code>uvx iuselinux@latest</code></p>
+                    </div>
+                    <div class="setting-divider"></div>
+                    <div class="setting-group">
+                        <h3>Permanent Installation</h3>
+                        <p class="setting-description">Install iuselinux persistently with faster startup (recommended for regular use):</p>
+                        <pre class="install-code"><code># Install permanently
+uv tool install iuselinux
+
+# Run directly (no uvx prefix needed)
+iuselinux
+
+# Upgrade to latest version
+uv tool upgrade iuselinux</code></pre>
+                        <p class="setting-hint">Permanent installation creates a persistent environment in <code>~/.local/share/uv/tools/</code> and adds <code>iuselinux</code> to your PATH.</p>
                     </div>
                     <div class="setting-divider"></div>
                     <div class="setting-group">
@@ -249,7 +264,7 @@ uvx iuselinux service status
 
 # Uninstall
 uvx iuselinux service uninstall</code></pre>
-                        <p class="setting-hint">You can also manage the service from the Service tab above.</p>
+                        <p class="setting-hint">The service launcher automatically detects whether you used <code>uvx</code> or <code>uv tool install</code>.</p>
                     </div>
                     <div class="setting-divider"></div>
                     <div class="setting-group">
@@ -306,8 +321,12 @@ ssh -L 1960:localhost:1960 user@your-mac-ip</code></pre>
                             <button type="button" id="check-updates-btn" class="btn-secondary btn-small">Check for Updates</button>
                         </div>
                         <div id="update-command-section" class="update-command-section hidden">
-                            <p class="setting-description">To update, run:</p>
-                            <pre class="install-code"><code id="about-update-command">uv tool upgrade iuselinux</code></pre>
+                            <p class="setting-description">To update:</p>
+                            <pre class="install-code"><code id="about-update-command"># If you used 'uv tool install':
+uv tool upgrade iuselinux
+
+# If you use 'uvx' (ephemeral):
+uvx iuselinux@latest</code></pre>
                         </div>
                         <div class="setting-divider"></div>
                         <h3>System Status</h3>
