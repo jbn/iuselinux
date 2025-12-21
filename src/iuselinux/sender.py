@@ -19,10 +19,20 @@ def _escape_applescript_string(s: str) -> str:
     """
     Escape a string for safe inclusion in AppleScript.
 
-    Handles quotes and backslashes.
+    Handles backslashes, quotes, and control characters that could
+    break out of string context and allow command injection.
     """
-    # Escape backslashes first, then quotes
-    return s.replace("\\", "\\\\").replace('"', '\\"')
+    # Escape backslashes first (must be first to avoid double-escaping)
+    s = s.replace("\\", "\\\\")
+    # Escape double quotes
+    s = s.replace('"', '\\"')
+    # SECURITY FIX: Escape control characters to prevent command injection.
+    # Without this, a message like 'Hello"\ntell app "Finder" to delete files'
+    # could break out of the AppleScript string context and execute arbitrary code.
+    s = s.replace("\n", "\\n")
+    s = s.replace("\r", "\\r")
+    s = s.replace("\t", "\\t")
+    return s
 
 
 def _is_chat_guid(recipient: str) -> bool:
@@ -121,7 +131,7 @@ def send_imessage_with_file(recipient: str, file_path: str, message: str | None 
     logger.info("Sending iMessage with file to %s: %s", recipient, file_path)
 
     # Escape strings for AppleScript
-    safe_path = file_path.replace("\\", "\\\\").replace('"', '\\"')
+    safe_path = _escape_applescript_string(file_path)
 
     # Build the AppleScript based on recipient type
     if _is_chat_guid(recipient):

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from iuselinux import service
+from iuselinux.service import BundleOwnershipError
 
 
 def test_get_launch_agents_dir():
@@ -261,6 +262,90 @@ def test_get_tailscale_status(mock_which, mock_run):
     assert "tailscale_serving" in status
 
 
+# Tailscale PID file tests
+
+def test_get_tailscale_pid_file():
+    """Test tailscale PID file path is in ~/.local/state/iuselinux."""
+    result = service.get_tailscale_pid_file()
+    assert ".local/state/iuselinux" in str(result)
+    assert result.name == "tailscale_serve.pid"
+
+
+def test_write_and_read_tailscale_pid(tmp_path, monkeypatch):
+    """Test writing and reading tailscale PID file."""
+    pid_file = tmp_path / "tailscale_serve.pid"
+    monkeypatch.setattr(service, "get_tailscale_pid_file", lambda: pid_file)
+
+    service._write_tailscale_pid(12345)
+    assert pid_file.exists()
+    assert service._read_tailscale_pid() == 12345
+
+
+def test_read_tailscale_pid_nonexistent(tmp_path, monkeypatch):
+    """Test reading nonexistent PID file returns None."""
+    pid_file = tmp_path / "tailscale_serve.pid"
+    monkeypatch.setattr(service, "get_tailscale_pid_file", lambda: pid_file)
+
+    assert service._read_tailscale_pid() is None
+
+
+def test_remove_tailscale_pid_file(tmp_path, monkeypatch):
+    """Test removing tailscale PID file."""
+    pid_file = tmp_path / "tailscale_serve.pid"
+    pid_file.write_text("12345")
+    monkeypatch.setattr(service, "get_tailscale_pid_file", lambda: pid_file)
+
+    service._remove_tailscale_pid_file()
+    assert not pid_file.exists()
+
+
+def test_is_process_running_self():
+    """Test _is_process_running returns True for current process."""
+    import os
+    assert service._is_process_running(os.getpid()) is True
+
+
+def test_is_process_running_nonexistent():
+    """Test _is_process_running returns False for nonexistent PID."""
+    # Use a very high PID that's unlikely to exist
+    assert service._is_process_running(999999999) is False
+
+
+@patch("iuselinux.service._is_process_running")
+def test_is_tailscale_serving_via_pid_file(mock_is_running, tmp_path, monkeypatch):
+    """Test is_tailscale_serving detects serving via PID file."""
+    # Setup: no in-process subprocess
+    monkeypatch.setattr(service, "_tailscale_serve_proc", None)
+
+    # Setup: PID file exists with running process
+    pid_file = tmp_path / "tailscale_serve.pid"
+    pid_file.write_text("12345")
+    monkeypatch.setattr(service, "get_tailscale_pid_file", lambda: pid_file)
+    mock_is_running.return_value = True
+
+    # Should detect as serving via PID file
+    with patch("shutil.which", return_value=None):  # No tailscale CLI
+        assert service.is_tailscale_serving() is True
+
+
+@patch("iuselinux.service._is_process_running")
+@patch("iuselinux.service._read_tailscale_pid")
+@patch("os.kill")
+def test_disable_tailscale_serve_cross_process(mock_kill, mock_read_pid, mock_is_running, monkeypatch):
+    """Test disable_tailscale_serve works cross-process via PID file."""
+    # Setup: no in-process subprocess
+    monkeypatch.setattr(service, "_tailscale_serve_proc", None)
+
+    # Setup: PID file contains running process
+    mock_read_pid.return_value = 12345
+    mock_is_running.side_effect = [True, False]  # First check: running, second: dead
+
+    success, message = service.disable_tailscale_serve()
+
+    assert success is True
+    mock_kill.assert_called_with(12345, 15)  # SIGTERM
+
+
 # Port detection tests
 
 def test_is_port_in_use_available():
@@ -437,3 +522,187 @@ def test_install_tray_already_installed(mock_run, tmp_path, monkeypatch):
 
     assert success is False
     assert "already installed" in message.lower()
+
+
+# Bundle ownership verification tests
+
+
+class TestBundleOwnershipVerification:
+    """Tests for bundle ownership verification to prevent overwriting user apps."""
+
+    def test_verify_ownership_nonexistent_bundle(self, tmp_path):
+        """Test that verification passes for nonexistent bundles."""
+        app_path = tmp_path / "NonExistent.app"
+        assert service.verify_bundle_ownership(app_path, "com.example.test") is True
+
+    def test_verify_ownership_our_bundle(self, tmp_path):
+        """Test that verification passes for our own bundle."""
+        app_path = tmp_path / "Test.app"
+        contents_path = app_path / "Contents"
+        contents_path.mkdir(parents=True)
+
+        info_plist = {
+            "CFBundleIdentifier": "com.iuselinux.tray",
+            "CFBundleName": "Test",
+        }
+        with open(contents_path / "Info.plist", "wb") as f:
+            plistlib.dump(info_plist, f)
+
+        assert service.verify_bundle_ownership(app_path, "com.iuselinux.tray") is True
+
+    def test_verify_ownership_different_bundle_raises_error(self, tmp_path):
+        """Test that verification fails for a bundle with different identifier."""
+        app_path = tmp_path / "OtherApp.app"
+        contents_path = app_path / "Contents"
+        contents_path.mkdir(parents=True)
+
+        info_plist = {
+            "CFBundleIdentifier": "com.other.app",
+            "CFBundleName": "Other App",
+        }
+        with open(contents_path / "Info.plist", "wb") as f:
+            plistlib.dump(info_plist, f)
+
+        with pytest.raises(BundleOwnershipError) as exc_info:
+            service.verify_bundle_ownership(app_path, "com.iuselinux.tray")
+
+        assert "com.other.app" in str(exc_info.value)
+        assert "com.iuselinux.tray" in str(exc_info.value)
+
+    def test_verify_ownership_missing_info_plist_raises_error(self, tmp_path):
+        """Test that verification fails for bundle without Info.plist."""
+        app_path = tmp_path / "MalformedApp.app"
+        contents_path = app_path / "Contents"
+        contents_path.mkdir(parents=True)
+        # No Info.plist created
+
+        with pytest.raises(BundleOwnershipError) as exc_info:
+            service.verify_bundle_ownership(app_path, "com.iuselinux.tray")
+
+        assert "no Info.plist" in str(exc_info.value)
+
+    def test_verify_ownership_invalid_plist_raises_error(self, tmp_path):
+        """Test that verification fails for bundle with invalid plist."""
+        app_path = tmp_path / "CorruptApp.app"
+        contents_path = app_path / "Contents"
+        contents_path.mkdir(parents=True)
+
+        # Write invalid plist data
+        with open(contents_path / "Info.plist", "w") as f:
+            f.write("this is not a valid plist")
+
+        with pytest.raises(BundleOwnershipError) as exc_info:
+            service.verify_bundle_ownership(app_path, "com.iuselinux.tray")
+
+        assert "invalid Info.plist" in str(exc_info.value)
+
+    def test_verify_ownership_empty_identifier_raises_error(self, tmp_path):
+        """Test that verification fails for bundle with empty identifier."""
+        app_path = tmp_path / "NoIdApp.app"
+        contents_path = app_path / "Contents"
+        contents_path.mkdir(parents=True)
+
+        info_plist = {
+            "CFBundleName": "No Identifier App",
+            # CFBundleIdentifier is missing
+        }
+        with open(contents_path / "Info.plist", "wb") as f:
+            plistlib.dump(info_plist, f)
+
+        with pytest.raises(BundleOwnershipError) as exc_info:
+            service.verify_bundle_ownership(app_path, "com.iuselinux.tray")
+
+        assert "com.iuselinux.tray" in str(exc_info.value)
+
+    def test_create_tray_app_bundle_refuses_foreign_bundle(self, tmp_path, monkeypatch):
+        """Test that create_tray_app_bundle refuses to overwrite foreign apps."""
+        # Create a foreign app at the expected location
+        app_path = tmp_path / "iUseLinux.app"
+        contents_path = app_path / "Contents"
+        contents_path.mkdir(parents=True)
+
+        info_plist = {
+            "CFBundleIdentifier": "com.someuser.myapp",
+            "CFBundleName": "User's App",
+        }
+        with open(contents_path / "Info.plist", "wb") as f:
+            plistlib.dump(info_plist, f)
+
+        # Mock the path functions
+        monkeypatch.setattr(service, "get_tray_app_bundle_path", lambda: app_path)
+        monkeypatch.setattr(service, "get_user_applications_dir", lambda: tmp_path)
+
+        with pytest.raises(BundleOwnershipError) as exc_info:
+            service.create_tray_app_bundle()
+
+        assert "com.someuser.myapp" in str(exc_info.value)
+
+    def test_remove_tray_app_bundle_refuses_foreign_bundle(self, tmp_path, monkeypatch):
+        """Test that remove_tray_app_bundle refuses to delete foreign apps."""
+        # Create a foreign app at the expected location
+        app_path = tmp_path / "iUseLinux.app"
+        contents_path = app_path / "Contents"
+        contents_path.mkdir(parents=True)
+
+        info_plist = {
+            "CFBundleIdentifier": "com.someuser.myapp",
+            "CFBundleName": "User's App",
+        }
+        with open(contents_path / "Info.plist", "wb") as f:
+            plistlib.dump(info_plist, f)
+
+        # Mock the path function
+        monkeypatch.setattr(service, "get_tray_app_bundle_path", lambda: app_path)
+
+        with pytest.raises(BundleOwnershipError) as exc_info:
+            service.remove_tray_app_bundle()
+
+        assert "com.someuser.myapp" in str(exc_info.value)
+        # Verify the app was NOT deleted
+        assert app_path.exists()
+
+    def test_create_app_bundle_refuses_foreign_bundle(self, tmp_path, monkeypatch):
+        """Test that create_app_bundle refuses to overwrite foreign apps."""
+        # Create a foreign app at the expected location
+        app_path = tmp_path / "iUseLinux Service.app"
+        contents_path = app_path / "Contents"
+        contents_path.mkdir(parents=True)
+
+        info_plist = {
+            "CFBundleIdentifier": "com.someuser.myservice",
+            "CFBundleName": "User's Service",
+        }
+        with open(contents_path / "Info.plist", "wb") as f:
+            plistlib.dump(info_plist, f)
+
+        # Mock the path function
+        monkeypatch.setattr(service, "get_app_bundle_path", lambda: app_path)
+
+        with pytest.raises(BundleOwnershipError) as exc_info:
+            service.create_app_bundle()
+
+        assert "com.someuser.myservice" in str(exc_info.value)
+
+    def test_remove_app_bundle_refuses_foreign_bundle(self, tmp_path, monkeypatch):
+        """Test that remove_app_bundle refuses to delete foreign apps."""
+        # Create a foreign app at the expected location
+        app_path = tmp_path / "iUseLinux Service.app"
+        contents_path = app_path / "Contents"
+        contents_path.mkdir(parents=True)
+
+        info_plist = {
+            "CFBundleIdentifier": "com.someuser.myservice",
+            "CFBundleName": "User's Service",
+        }
+        with open(contents_path / "Info.plist", "wb") as f:
+            plistlib.dump(info_plist, f)
+
+        # Mock the path function
+        monkeypatch.setattr(service, "get_app_bundle_path", lambda: app_path)
+
+        with pytest.raises(BundleOwnershipError) as exc_info:
+            service.remove_app_bundle()
+
+        assert "com.someuser.myservice" in str(exc_info.value)
+        # Verify the app was NOT deleted
+        assert app_path.exists()
