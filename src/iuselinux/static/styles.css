@@ -1331,42 +1331,7 @@ body.resizing-sidebar {
     position: relative;
 }
 
-/* Tapback bubble tail - points down-left for received messages */
-.message.from-them .tapback-annotation::after {
-    content: '';
-    position: absolute;
-    bottom: -4px;
-    left: 4px;
-    width: 8px;
-    height: 8px;
-    background: var(--bg-secondary);
-    border-left: 1px solid var(--border-primary);
-    border-bottom: 1px solid var(--border-primary);
-    border-radius: 0 0 0 8px;
-    clip-path: polygon(0 0, 100% 0, 0 100%);
-}
-
-/* Tapback bubble tail - points down-right for sent messages */
-.message.from-me .tapback-annotation::after {
-    content: '';
-    position: absolute;
-    bottom: -4px;
-    right: 4px;
-    width: 8px;
-    height: 8px;
-    background: var(--bg-secondary);
-    border-right: 1px solid var(--border-primary);
-    border-bottom: 1px solid var(--border-primary);
-    border-radius: 0 0 8px 0;
-    clip-path: polygon(100% 0, 100% 100%, 0 0);
-}
-
 .tapback-annotation.tapback-from-me {
-    background: var(--accent);
-    border-color: var(--accent);
-}
-
-.tapback-annotation.tapback-from-me::after {
     background: var(--accent);
     border-color: var(--accent);
 }
