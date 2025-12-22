@@ -3,6 +3,21 @@
 import importlib.metadata
 import logging
 import sys
+import warnings
+
+# Check platform immediately on import
+if sys.platform != "darwin":
+    _RED = "\033[91m"
+    _BOLD = "\033[1m"
+    _RESET = "\033[0m"
+
+    _error_msg = f"""
+{_RED}{_BOLD}ERROR: iuselinux is only supported on macOS{_RESET}
+
+Install it on your macOS machine, then connect to it over http.
+"""
+    print(_error_msg, file=sys.stderr)
+    raise SystemExit(1)
 
 from .config import get_config_value
 

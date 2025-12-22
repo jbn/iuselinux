@@ -58,6 +58,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/iuselinux"]
 
+# Use custom build hook to enforce macOS-only wheel
+[tool.hatch.build.targets.wheel.hooks.custom]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
