@@ -1,6 +1,6 @@
 [project]
 name = "iuselinux"
-version = "0.1.5"
+version = "0.1.6"
 description = "Remote iMessage gateway for macOS"
 readme = "README.md"
 license = { text = "MIT" }
@@ -33,7 +33,7 @@ dependencies = [
     "click>=8.0.0",
     "python-multipart>=0.0.20",
     "packaging>=21.0",
-    "rumps>=0.4.0",
+    "rumps>=0.4.0; sys_platform == 'darwin'",
 ]
 
 [project.optional-dependencies]
