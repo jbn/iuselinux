@@ -1171,26 +1171,43 @@ def is_tray_loaded() -> bool:
 
 
 def get_tray_pid() -> int | None:
-    """Get the PID of the running tray, if any."""
-    # Use launchctl list (no argument) which outputs tabular format:
-    # PID\tStatus\tLabel  (or "-" for PID if not running)
+    """Get the PID of the running tray, if any.
+
+    Checks both the launchd service and running processes, since the tray
+    can be launched either via LaunchAgent or directly from Spotlight/app bundle.
+    """
+    # First try launchctl list (tabular format: PID\tStatus\tLabel)
     result = subprocess.run(
         ["launchctl", "list"],
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0:
-        return None
+    if result.returncode == 0:
+        for line in result.stdout.strip().split("\n"):
+            if TRAY_SERVICE_LABEL in line:
+                parts = line.split("\t")
+                if len(parts) >= 1:
+                    try:
+                        pid = int(parts[0])
+                        return pid
+                    except ValueError:
+                        pass  # "-" means launchd entry exists but not running
 
-    # Find our service in the output
-    for line in result.stdout.strip().split("\n"):
-        if TRAY_SERVICE_LABEL in line:
-            parts = line.split("\t")
-            if len(parts) >= 1:
-                try:
-                    return int(parts[0])
-                except ValueError:
-                    return None  # "-" means not running
+    # Fall back to checking for running processes directly.
+    # This catches the case where the tray was launched via Spotlight/app bundle,
+    # which creates a different launchd entry (application.com.iuselinux.tray.*)
+    result = subprocess.run(
+        ["pgrep", "-f", "iuselinux tray run"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        # pgrep returns PIDs, one per line; take the first
+        try:
+            return int(result.stdout.strip().split("\n")[0])
+        except ValueError:
+            pass
+
     return None
 
 
