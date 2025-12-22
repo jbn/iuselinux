@@ -71,6 +71,9 @@ Manage the service:
 # Check status
 uvx iuselinux service status
 
+# Upgrade and restart the service
+iuselinux service upgrade
+
 # Uninstall
 uvx iuselinux service uninstall
 ```

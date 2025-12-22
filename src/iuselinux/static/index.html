@@ -20,6 +20,7 @@
                 Update available: <span id="banner-version"></span>
             </span>
             <code class="update-banner-command" id="banner-command"></code>
+            <button type="button" id="update-now-btn" class="update-now-btn">Update Now</button>
             <button type="button" id="banner-dismiss" class="update-banner-dismiss" title="Dismiss for 48 hours">&times;</button>
         </div>
     </div>
@@ -243,7 +244,10 @@ uv tool install iuselinux
 iuselinux
 
 # Upgrade to latest version
-uv tool upgrade iuselinux</code></pre>
+uv tool upgrade iuselinux
+
+# Upgrade and restart the service
+iuselinux service upgrade</code></pre>
                         <p class="setting-hint">Permanent installation creates a persistent environment in <code>~/.local/share/uv/tools/</code> and adds <code>iuselinux</code> to your PATH.</p>
                     </div>
                     <div class="setting-divider"></div>
