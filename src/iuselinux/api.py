@@ -1816,6 +1816,29 @@ def dismiss_update_banner() -> BannerDismissResponse:
     )
 
 
+class UpdateAndRestartResponse(BaseModel):
+    """Response from update-and-restart endpoint."""
+
+    success: bool
+    message: str
+
+
+@app.post("/version/update-and-restart", response_model=UpdateAndRestartResponse)
+def update_and_restart() -> UpdateAndRestartResponse:
+    """Perform update and restart the server and tray.
+
+    This endpoint upgrades iuselinux to the latest version using
+    'uv tool upgrade iuselinux' and then restarts the service and tray.
+    """
+    success, message = updater_module.perform_update()
+    if success:
+        updater_module.schedule_restart(delay_seconds=2.0)
+        return UpdateAndRestartResponse(
+            success=True, message="Update installed. Restarting..."
+        )
+    return UpdateAndRestartResponse(success=False, message=message)
+
+
 # WebSocket for real-time updates
 MAX_WEBSOCKET_CONNECTIONS = 10
 _active_websockets: set[WebSocket] = set()
@@ -2117,6 +2140,20 @@ def service_status(as_json: bool) -> None:
         click.echo(json.dumps(status, indent=2))
     else:
         click.echo(service_module.format_status(status))
+
+
+@service.command("upgrade")
+def service_upgrade() -> None:
+    """Upgrade iuselinux and restart the service and tray."""
+    click.echo("Upgrading iuselinux...")
+    success, message = updater_module.perform_update()
+    if not success:
+        click.echo(click.style(f"Error: {message}", fg="red"), err=True)
+        sys.exit(1)
+
+    click.echo(click.style(message, fg="green"))
+    click.echo("Restarting service and tray...")
+    updater_module.schedule_restart(delay_seconds=1.0)
 
 
 # Tray commands

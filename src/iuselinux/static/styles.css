@@ -2280,6 +2280,27 @@ body.resizing-sidebar {
     opacity: 1;
 }
 
+.update-now-btn {
+    background: #2563eb;
+    color: white;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    margin-left: 8px;
+}
+
+.update-now-btn:hover {
+    background: #1d4ed8;
+}
+
+.update-now-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 /* Hide dismiss button for major updates */
 .update-banner.major .update-banner-dismiss {
     display: none;

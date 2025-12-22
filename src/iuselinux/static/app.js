@@ -1633,9 +1633,39 @@ async function dismissUpdateBanner() {
     }
 }
 
+async function performUpdateAndRestart() {
+    const btn = document.getElementById('update-now-btn');
+    if (!btn) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Updating...';
+
+    try {
+        const res = await apiFetch('/version/update-and-restart', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.success) {
+            btn.textContent = 'Restarting...';
+            // The server will restart, page will disconnect and reconnect
+        } else {
+            btn.textContent = 'Failed';
+            alert(data.message);
+            setTimeout(() => {
+                btn.textContent = 'Update Now';
+                btn.disabled = false;
+            }, 3000);
+        }
+    } catch (err) {
+        console.error('Failed to perform update:', err);
+        btn.textContent = 'Update Now';
+        btn.disabled = false;
+    }
+}
+
 // Update button event listeners
 document.getElementById('check-updates-btn')?.addEventListener('click', checkForUpdates);
 document.getElementById('banner-dismiss')?.addEventListener('click', dismissUpdateBanner);
+document.getElementById('update-now-btn')?.addEventListener('click', performUpdateAndRestart);
 
 // Periodically check for updates while page is open (every 6 hours)
 // The server-side caches results for 24 hours, so this just ensures

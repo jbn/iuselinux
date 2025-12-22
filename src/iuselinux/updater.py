@@ -142,12 +142,27 @@ def perform_update() -> tuple[bool, str]:
         return False, f"Update failed: {e}"
 
 
+def restart_tray() -> None:
+    """Restart the tray LaunchAgent if running."""
+    from .service import TRAY_SERVICE_LABEL, is_tray_loaded
+
+    if is_tray_loaded():
+        uid = os.getuid()
+        subprocess.run(
+            ["launchctl", "kickstart", "-k", f"gui/{uid}/{TRAY_SERVICE_LABEL}"],
+            capture_output=True,
+        )
+
+
 def schedule_restart(delay_seconds: float = 2.0) -> None:
-    """Schedule a server restart after a delay."""
+    """Schedule a server and tray restart after a delay."""
     from .service import SERVICE_LABEL, is_loaded
 
     def do_restart() -> None:
         time.sleep(delay_seconds)
+
+        # Restart tray first (it doesn't have KeepAlive, so needs explicit restart)
+        restart_tray()
 
         if is_loaded():
             # Running as LaunchAgent - use launchctl to restart
