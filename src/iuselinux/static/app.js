@@ -1167,7 +1167,7 @@ function formatTimeSeparator(date) {
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
-    return div.innerHTML;
+    return div.innerHTML.replace(/\n/g, '<br>');
 }
 
 // Keepalive ping to prevent browser from closing idle WebSocket
