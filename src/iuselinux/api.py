@@ -1677,8 +1677,11 @@ def get_tray_status() -> TrayStatusResponse:
 def restart_tray() -> ServiceActionResponse:
     """Restart the tray application.
 
-    Unloads and reloads the tray LaunchAgent.
+    Unloads and reloads the tray LaunchAgent. Also kills any running tray
+    process that may have been started outside of launchd (e.g. from Spotlight).
     """
+    import subprocess
+
     if not service_api_module.is_tray_installed():
         return ServiceActionResponse(
             success=False,
@@ -1687,18 +1690,19 @@ def restart_tray() -> ServiceActionResponse:
 
     plist_path = service_api_module.get_tray_plist_path()
 
-    # Unload if currently loaded
+    # Unload if currently loaded in launchd
     if service_api_module.is_tray_loaded():
-        import subprocess
-
         subprocess.run(
             ["launchctl", "unload", str(plist_path)],
             capture_output=True,
         )
 
-    # Load the tray
-    import subprocess
+    # Kill any running tray process (may have been started from Spotlight/app bundle)
+    tray_pid = service_api_module.get_tray_pid()
+    if tray_pid:
+        subprocess.run(["kill", str(tray_pid)], capture_output=True)
 
+    # Load the tray via launchd
     result = subprocess.run(
         ["launchctl", "load", str(plist_path)],
         capture_output=True,
