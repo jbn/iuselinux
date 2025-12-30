@@ -477,8 +477,8 @@ function renderChats(chats) {
         const avatarHtml = getChatAvatarHtml(chat);
         const timeStr = formatSidebarTime(chat.last_message_time);
 
-        // Format message preview
-        let preview = chat.last_message_text || '';
+        // Format message preview - collapse to single line
+        let preview = (chat.last_message_text || '').replace(/\n+/g, ' ').trim();
         if (chat.last_message_is_from_me && preview) {
             preview = 'You: ' + preview;
         }
