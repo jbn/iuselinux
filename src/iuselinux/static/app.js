@@ -1097,7 +1097,8 @@ function messageHtml(msg, tapbacks = [], showSender = false) {
     const failedCls = msg._failed ? ' failed' : '';
     const statusCls = unconfirmedCls + failedCls;
 
-    const text = msg.text || '';
+    // Filter out object replacement character (U+FFFC) which is a placeholder for attachments
+    const text = (msg.text || '').replace(/\ufffc/g, '').trim();
     const attachmentsHtml = renderAttachments(msg.attachments);
     const senderHtml = showSender ? getMessageSenderHtml(msg) : '';
     const tapbacksHtml = renderTapbacks(tapbacks);
@@ -1141,6 +1142,11 @@ function messageHtml(msg, tapbacks = [], showSender = false) {
                 ${statusHtml}
             </div>
         `;
+    }
+
+    // Skip rendering if there's no content at all (no text, no attachments, no tapbacks)
+    if (!text && !attachmentsHtml && !tapbacksHtml) {
+        return '';
     }
 
     return `
