@@ -968,24 +968,32 @@ function renderAttachments(attachments) {
         } else if (isVideoMimeType(att.mime_type)) {
             if (isBrowserPlayableVideo(att.mime_type)) {
                 // Browser can play natively (MP4, WebM, etc.)
-                const poster = att.thumbnail_url ? `poster="${att.thumbnail_url}"` : '';
+                const thumbnailSrc = att.thumbnail_url || '';
                 return `
-                    <div class="attachment attachment-video">
-                        <video controls preload="metadata" ${poster}>
-                            <source src="${att.url}" type="${att.mime_type}">
-                            <a href="${att.url}">Download video</a>
-                        </video>
+                    <div class="attachment attachment-video-preview"
+                         data-video-url="${att.url}"
+                         data-video-type="${att.mime_type}"
+                         data-download-url="${att.url}"
+                         data-filename="${escapeHtml(att.filename || 'Video')}">
+                        ${thumbnailSrc ? `<img src="${thumbnailSrc}" alt="Video thumbnail" class="video-thumbnail">` : '<div class="video-placeholder"></div>'}
+                        <div class="video-play-button">
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                        </div>
                     </div>
                 `;
             } else if (att.stream_url) {
                 // MOV/QuickTime with ffmpeg transcoding available
-                const poster = att.thumbnail_url ? `poster="${att.thumbnail_url}"` : '';
+                const thumbnailSrc = att.thumbnail_url || '';
                 return `
-                    <div class="attachment attachment-video">
-                        <video controls preload="none" ${poster}>
-                            <source src="${att.stream_url}" type="video/mp4">
-                            <a href="${att.url}">Download video</a>
-                        </video>
+                    <div class="attachment attachment-video-preview"
+                         data-video-url="${att.stream_url}"
+                         data-video-type="video/mp4"
+                         data-download-url="${att.url}"
+                         data-filename="${escapeHtml(att.filename || 'Video')}">
+                        ${thumbnailSrc ? `<img src="${thumbnailSrc}" alt="Video thumbnail" class="video-thumbnail">` : '<div class="video-placeholder"></div>'}
+                        <div class="video-play-button">
+                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                        </div>
                     </div>
                 `;
             } else {
@@ -3095,6 +3103,56 @@ messagesDiv.addEventListener('click', (e) => {
         if (imageUrl) {
             e.preventDefault();
             openLightbox(imageUrl, downloadUrl || imageUrl, filename);
+        }
+    }
+});
+
+// Video Lightbox functionality
+const videoLightboxModal = document.getElementById('video-lightbox-modal');
+const lightboxVideo = document.getElementById('lightbox-video');
+const lightboxVideoSource = document.getElementById('lightbox-video-source');
+const videoLightboxDownload = document.getElementById('video-lightbox-download');
+const videoLightboxClose = videoLightboxModal?.querySelector('.lightbox-close');
+const videoLightboxBackdrop = videoLightboxModal?.querySelector('.lightbox-backdrop');
+
+function openVideoLightbox(videoUrl, videoType, downloadUrl, filename) {
+    lightboxVideoSource.src = videoUrl;
+    lightboxVideoSource.type = videoType || 'video/mp4';
+    lightboxVideo.load();
+    videoLightboxDownload.href = downloadUrl;
+    videoLightboxDownload.download = filename || 'video';
+    videoLightboxModal.classList.remove('hidden');
+    // Autoplay when modal opens
+    lightboxVideo.play().catch(() => {});
+}
+
+function closeVideoLightbox() {
+    videoLightboxModal.classList.add('hidden');
+    lightboxVideo.pause();
+    lightboxVideoSource.src = '';
+    lightboxVideo.load();
+}
+
+// Close video lightbox on X button, backdrop click, or Escape key
+if (videoLightboxClose) videoLightboxClose.addEventListener('click', closeVideoLightbox);
+if (videoLightboxBackdrop) videoLightboxBackdrop.addEventListener('click', closeVideoLightbox);
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && videoLightboxModal && !videoLightboxModal.classList.contains('hidden')) {
+        closeVideoLightbox();
+    }
+});
+
+// Delegate click handler for video previews (they're dynamically rendered)
+messagesDiv.addEventListener('click', (e) => {
+    const videoPreview = e.target.closest('.attachment-video-preview');
+    if (videoPreview) {
+        const videoUrl = videoPreview.dataset.videoUrl;
+        const videoType = videoPreview.dataset.videoType;
+        const downloadUrl = videoPreview.dataset.downloadUrl;
+        const filename = videoPreview.dataset.filename;
+        if (videoUrl) {
+            e.preventDefault();
+            openVideoLightbox(videoUrl, videoType, downloadUrl || videoUrl, filename);
         }
     }
 });

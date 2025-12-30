@@ -417,6 +417,26 @@ uvx iuselinux@latest</code></pre>
         </div>
     </div>
 
+    <!-- Video Lightbox Modal -->
+    <div id="video-lightbox-modal" class="lightbox hidden">
+        <div class="lightbox-backdrop"></div>
+        <div class="lightbox-content video-lightbox-content">
+            <button class="lightbox-close" title="Close">&times;</button>
+            <video id="lightbox-video" controls playsinline preload="metadata">
+                <source id="lightbox-video-source" src="" type="video/mp4">
+            </video>
+            <div class="lightbox-controls">
+                <a id="video-lightbox-download" href="" download class="lightbox-btn" title="Download original">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10 13l-4-4h3V3h2v6h3l-4 4z"/>
+                        <path d="M17 15v2H3v-2H1v4h18v-4h-2z"/>
+                    </svg>
+                    Download
+                </a>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/app.js"></script>
 </body>
 </html>
