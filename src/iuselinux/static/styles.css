@@ -771,6 +771,57 @@ body.resizing-sidebar {
     display: block;
 }
 
+/* Video preview thumbnail with play button */
+.attachment-video-preview {
+    position: relative;
+    display: inline-block;
+    cursor: pointer;
+    border-radius: 12px;
+    overflow: hidden;
+    max-width: 100%;
+}
+
+.attachment-video-preview .video-thumbnail {
+    max-width: 100%;
+    max-height: 300px;
+    display: block;
+    border-radius: 12px;
+}
+
+.attachment-video-preview .video-placeholder {
+    width: 200px;
+    height: 150px;
+    background: var(--bg-file);
+    border-radius: 12px;
+}
+
+.attachment-video-preview .video-play-button {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60px;
+    height: 60px;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, transform 0.2s;
+}
+
+.attachment-video-preview .video-play-button svg {
+    width: 30px;
+    height: 30px;
+    color: white;
+    margin-left: 4px; /* Optical centering for play icon */
+}
+
+.attachment-video-preview:hover .video-play-button {
+    background: rgba(0, 0, 0, 0.8);
+    transform: translate(-50%, -50%) scale(1.1);
+}
+
 .attachment-video video {
     max-width: 100%;
     max-height: 300px;
@@ -1842,6 +1893,19 @@ body.resizing-sidebar {
     object-fit: contain;
     border-radius: 4px;
     box-shadow: 0 4px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Video lightbox */
+.video-lightbox-content {
+    max-width: 90vw;
+}
+
+#lightbox-video {
+    max-width: 90vw;
+    max-height: 80vh;
+    border-radius: 4px;
+    box-shadow: 0 4px 32px rgba(0, 0, 0, 0.5);
+    background: #000;
 }
 
 .lightbox-controls {

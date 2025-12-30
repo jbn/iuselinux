@@ -1104,10 +1104,15 @@ def get_attachment_file(attachment_id: int) -> FileResponse | StreamingResponse:
             # Fall back to serving original if conversion fails
             pass
 
+    # Use inline disposition for media files so they display in browser
+    # rather than triggering a download
+    is_media = mime_type.startswith("image/") or mime_type.startswith("video/")
+
     return FileResponse(
         path=file_path,
         media_type=mime_type,
         filename=attachment.transfer_name or file_path.name,
+        content_disposition_type="inline" if is_media else "attachment",
     )
 
 
@@ -1245,64 +1250,53 @@ def get_attachment_thumbnail(attachment_id: int) -> FileResponse | StreamingResp
     )
 
 
-from typing import Iterator
-
-
-def _transcode_to_mp4_stream(input_path: Path) -> Iterator[bytes]:
+def _transcode_to_mp4_file(input_path: Path, output_path: Path) -> bool:
     """
-    Generator that yields MP4 chunks as ffmpeg produces them.
+    Transcode video to MP4 file for browser playback.
 
-    Uses fragmented MP4 (fMP4) format which allows playback to start
-    before the entire file is transcoded.
+    Returns True on success, False on failure.
     """
     if not FFMPEG_AVAILABLE:
-        return
-
-    proc = subprocess.Popen(
-        [
-            "ffmpeg", "-y",
-            "-i", str(input_path),
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            "-movflags", "frag_keyframe+empty_moov+faststart",  # Fragmented MP4 for streaming
-            "-f", "mp4",
-            "pipe:1",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
+        return False
 
     try:
-        # Read and yield chunks as they become available
-        chunk_size = 64 * 1024  # 64KB chunks
-        assert proc.stdout is not None
-        while True:
-            chunk = proc.stdout.read(chunk_size)
-            if not chunk:
-                break
-            yield chunk
-    finally:
-        if proc.stdout is not None:
-            proc.stdout.close()
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", str(input_path),
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "23",
+                "-pix_fmt", "yuv420p",  # Ensure browser compatibility
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-movflags", "+faststart",  # Move moov atom to start for streaming
+                "-f", "mp4",
+                str(output_path),
+            ],
+            stderr=subprocess.DEVNULL,
+            timeout=300,  # 5 minute timeout for transcoding
+        )
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        # Clean up partial file
+        if output_path.exists():
+            output_path.unlink()
+        return False
+    except Exception:
+        if output_path.exists():
+            output_path.unlink()
+        return False
 
 
 @app.get("/attachments/{attachment_id}/stream", response_model=None)
-def stream_attachment(attachment_id: int) -> FileResponse | StreamingResponse:
+def stream_attachment(attachment_id: int) -> FileResponse:
     """
-    Stream a transcoded version of a video attachment.
+    Serve a transcoded version of a video attachment.
 
     MOV/QuickTime videos are transcoded to MP4 for browser playback.
-    Uses chunked transfer encoding so playback can start immediately
-    while transcoding continues in the background.
-    Returns 404 if ffmpeg not available.
+    Transcoded files are cached for subsequent requests.
+    Returns 404 if ffmpeg not available or transcoding fails.
     """
     if not FFMPEG_AVAILABLE:
         raise HTTPException(status_code=404, detail="Streaming not available (ffmpeg not installed)")
@@ -1327,11 +1321,21 @@ def stream_attachment(attachment_id: int) -> FileResponse | StreamingResponse:
             headers={"Cache-Control": "public, max-age=86400"},
         )
 
-    # Stream transcoded MP4 chunks as they're produced
-    return StreamingResponse(
-        _transcode_to_mp4_stream(file_path),
+    # Check for cached transcoded file
+    cache_key = _get_cache_key(file_path, "mp4")
+    cache_path = CACHE_DIR / f"{cache_key}.mp4"
+
+    video_cache_ttl = int(get_config_value("thumbnail_cache_ttl"))  # Reuse thumbnail TTL
+    if not _is_cache_valid(cache_path, ttl=video_cache_ttl):
+        # Transcode to cache file
+        if not _transcode_to_mp4_file(file_path, cache_path):
+            raise HTTPException(status_code=500, detail="Failed to transcode video")
+
+    # Serve cached file with FileResponse (supports range requests for seeking)
+    return FileResponse(
+        cache_path,
         media_type="video/mp4",
-        # Don't cache transcoded streams - they may be incomplete if interrupted
+        headers={"Cache-Control": f"public, max-age={video_cache_ttl}"},
     )
 
 
