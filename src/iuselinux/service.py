@@ -39,23 +39,6 @@ TRAY_APP_BUNDLE_EXECUTABLE = "iuselinux-tray"
 STATE_DIR = Path.home() / ".local" / "state" / "iuselinux"
 
 
-def get_launcher_binary_path(name: str) -> Path:
-    """Get path to pre-compiled launcher binary.
-
-    The binaries are universal (x86_64 + arm64) Mach-O executables compiled from
-    Swift source in the bin/ directory. Using compiled binaries instead of shell
-    scripts is required for macOS TCC to properly recognize the app bundle for
-    Full Disk Access permissions.
-
-    Args:
-        name: Binary name ('iuselinux-launcher' or 'iuselinux-tray')
-
-    Returns:
-        Path to the binary
-    """
-    return Path(__file__).parent / "bin" / name
-
-
 @contextmanager
 def _service_lock() -> Generator[None, None, None]:
     """Acquire exclusive lock for install/uninstall operations.
@@ -151,13 +134,34 @@ def create_app_bundle() -> Path:
     with open(plist_path, "wb") as f:
         plistlib.dump(info_plist, f)
 
-    # Copy pre-compiled launcher binary
-    # Using a Mach-O binary instead of a shell script is required for macOS TCC
-    # to properly recognize the app bundle for Full Disk Access permissions.
-    # Child processes inherit TCC permissions, so python gets FDA from the launcher.
+    # Create the launcher shell script
+    # This script detects the best way to run iuselinux at runtime
+    # Prefers 'iuselinux' (from uv tool install) over 'uvx' so that
+    # 'uv tool upgrade iuselinux' affects the service
+    launcher_script = """\
+#!/bin/bash
+# iUseLinux service launcher - add this app to Full Disk Access
+# Location: ~/Library/Application Support/iuselinux/iUseLinux Service.app
+
+# Include common paths where uv/uvx/pyenv might be installed
+export PATH="$HOME/.local/bin:$HOME/.pyenv/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+if command -v iuselinux &> /dev/null; then
+    exec iuselinux "$@"
+elif command -v uvx &> /dev/null; then
+    exec uvx iuselinux "$@"
+else
+    exec python3 -m iuselinux "$@"
+fi
+"""
+
     exec_path = macos_path / APP_BUNDLE_EXECUTABLE
-    shutil.copy2(get_launcher_binary_path("iuselinux-launcher"), exec_path)
-    os.chmod(exec_path, 0o755)
+    with open(exec_path, "w") as f:
+        f.write(launcher_script)
+
+    # Make executable (755 permissions)
+    st = os.stat(exec_path)
+    os.chmod(exec_path, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     return app_path
 
@@ -285,12 +289,33 @@ def create_tray_app_bundle() -> Path:
     with open(plist_path, "wb") as f:
         plistlib.dump(info_plist, f)
 
-    # Copy pre-compiled launcher binary
-    # Using a Mach-O binary instead of a shell script is required for macOS TCC
-    # to properly recognize the app bundle for Full Disk Access permissions.
+    # Create the launcher shell script
+    # Prefers 'iuselinux' (from uv tool install) over 'uvx' so that
+    # 'uv tool upgrade iuselinux' affects the tray
+    launcher_script = """\
+#!/bin/bash
+# iUseLinux - menu bar tray icon
+# Launch this app to show the iUseLinux menu bar icon
+
+# Include common paths where uv/uvx/pyenv might be installed
+export PATH="$HOME/.local/bin:$HOME/.pyenv/shims:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+if command -v iuselinux &> /dev/null; then
+    exec iuselinux tray run
+elif command -v uvx &> /dev/null; then
+    exec uvx iuselinux tray run
+else
+    exec python3 -m iuselinux tray run
+fi
+"""
+
     exec_path = macos_path / TRAY_APP_BUNDLE_EXECUTABLE
-    shutil.copy2(get_launcher_binary_path("iuselinux-tray"), exec_path)
-    os.chmod(exec_path, 0o755)
+    with open(exec_path, "w") as f:
+        f.write(launcher_script)
+
+    # Make executable (755 permissions)
+    st = os.stat(exec_path)
+    os.chmod(exec_path, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     return app_path
 

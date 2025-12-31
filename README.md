@@ -80,15 +80,13 @@ uvx iuselinux service uninstall
 
 ### Full Disk Access for Service Mode
 
-When running as a service, you need to grant Full Disk Access to the iUseLinux launcher app (not your terminal):
+When running as a service, you need to grant Full Disk Access to the Python binary that runs the service:
 
 1. Open **System Settings** > **Privacy & Security** > **Full Disk Access**
 2. Click the **+** button
-3. Press **Cmd+Shift+G** and enter: `~/Library/Application Support/iuselinux/`
-4. Select **iUseLinux Service.app** and click **Open**
+3. Press **Cmd+Shift+G** and enter: `~/.local/share/uv/tools/iuselinux/bin/`
+4. Select **python** and click **Open**
 5. Restart the service: `uvx iuselinux@latest service uninstall && uvx iuselinux@latest service install`
-
-The service install creates this app bundle automatically. It's a lightweight wrapper that allows macOS to grant Full Disk Access to the background service.
 
 ### Menu Bar Tray
 
@@ -515,5 +513,5 @@ To completely remove iUseLinux from your system:
 
 5. **Revoke permissions** (optional):
    - Open **System Settings** → **Privacy & Security** → **Full Disk Access**
-   - Remove any iUseLinux-related entries (Terminal, iUseLinux Service.app, etc.)
+   - Remove any iUseLinux-related entries (Terminal, python from uv tools, etc.)
    - Similarly check **Automation** and remove Terminal → Messages if desired
